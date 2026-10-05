@@ -328,11 +328,17 @@ export class SyncService extends BaseService {
   }
 
   private async syncAssetsV2(options: SyncQueryOptions, response: Writable, checkpointMap: CheckpointMap) {
+    console.log('sync assets');
+
     const deleteType = SyncEntityType.AssetDeleteV1;
     const deletes = this.syncRepository.asset.getDeletes({ ...options, ack: checkpointMap[deleteType] });
     for await (const { id, ...data } of deletes) {
+      console.log(id);
+      console.log(data.assetId);
+      console.log();
       await send(response, { type: deleteType, ids: [id], data });
     }
+    //await send(response, { type: deleteType, ids: ['0'], data: { assetId: '5e5ca5e1-f61e-4be2-aa29-b7a411f86bcb' } });
 
     const upsertType = SyncEntityType.AssetV2;
     const upserts = this.syncRepository.asset.getUpserts({ ...options, ack: checkpointMap[upsertType] });

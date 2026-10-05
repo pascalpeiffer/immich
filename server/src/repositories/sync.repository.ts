@@ -4,7 +4,9 @@ import { InjectKysely } from 'nestjs-kysely';
 import type { SyncAck } from 'src/types.js';
 import { columns } from 'src/database.js';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
+import { AssetVisibility } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
+import { hasAssetAccess } from 'src/utils/database.js';
 
 export type SyncBackfillOptions = {
   nowId: string;
@@ -115,6 +117,8 @@ export class BaseSync {
   protected auditQuery<T extends keyof DB>(t: T, { nowId, ack }: SyncQueryOptions) {
     const { table, ref } = this.db.dynamic;
     const idRef = ref(`${t}.id`);
+
+    console.log('auditQuery', t, nowId, ack);
 
     return this.db
       .selectFrom(table(t).as(t))
@@ -389,10 +393,14 @@ class AlbumUserSync extends BaseSync {
 class AssetSync extends BaseSync {
   @GenerateSql({ params: [dummyQueryOptions], stream: true })
   getDeletes(options: SyncQueryOptions) {
-    return this.auditQuery('asset_audit', options)
-      .select(['id', 'assetId'])
-      .where('ownerId', '=', options.userId)
-      .stream();
+    return (
+      this.auditQuery('asset_audit', options)
+        .select(['asset_audit.id' as 'id', 'asset_audit.assetId' as 'assetId'])
+        .innerJoin('asset', (join) => join.onRef('asset_audit.assetId', '=', 'asset.id'))
+        //.where((eb) => hasAssetAccess(eb, options.userId)) //TODO check
+        .stream()
+    );
+    //TODO when viewer access is removed from assets the assets should be added to "deletes"
   }
 
   cleanupAuditTable(daysAgo: number) {
@@ -401,10 +409,58 @@ class AssetSync extends BaseSync {
 
   @GenerateSql({ params: [dummyQueryOptions], stream: true })
   getUpserts(options: SyncQueryOptions) {
+    const effectiveOwner = sql<string>`
+    case when asset."ownerId" = ${options.userId}
+         then asset."ownerId"
+         else coalesce(override."userId", asset."ownerId")
+    end`;
+
+    const effectiveFav = sql<boolean>`
+    case when asset."ownerId" = ${options.userId}
+         then asset."isFavorite"
+         else coalesce(override_asset."isFavorite", asset."isFavorite")
+    end`;
+
+    const effectivVis = sql<AssetVisibility>`
+    case when asset."ownerId" = ${options.userId}
+         then asset."visibility"
+         else coalesce(override_asset."visibility", asset."visibility")
+    end`;
+
     return this.upsertQuery('asset', options)
-      .select(columns.syncAsset)
+      .select(
+        columns.syncAsset.filter((a) => a !== 'asset.ownerId' && a !== 'asset.isFavorite' && a !== 'asset.visibility'),
+      )
+      .innerJoin('viewer', (join) =>
+        join.onRef('viewer.libraryId', '=', 'asset.libraryId').on('viewer.userId', '=', options.userId),
+      )
+      .leftJoinLateral(
+        (eb) =>
+          eb
+            .selectFrom('viewer')
+            .select('viewer.userId')
+            .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+            .where('viewer.userId', '=', options.userId)
+            .limit(1)
+            .as('override'),
+        (join) => join.onTrue(),
+      )
+      .leftJoinLateral(
+        (eb) =>
+          eb
+            .selectFrom('viewer_asset')
+            .select(['isFavorite', 'visibility'])
+            .whereRef('viewer_asset.assetId', '=', 'asset.id')
+            .whereRef('viewer_asset.viewerId', '=', 'viewer.id')
+            .limit(1)
+            .as('override_asset'),
+        (join) => join.onTrue(),
+      )
+      .select(effectiveOwner.as('ownerId'))
+      .select(effectiveFav.as('isFavorite'))
+      .select(effectivVis.as('visibility'))
       .select('asset.updateId')
-      .where('ownerId', '=', options.userId)
+      .where((eb) => hasAssetAccess(eb, options.userId))
       .stream();
   }
 }
@@ -424,8 +480,23 @@ class PersonSync extends BaseSync {
   @GenerateSql({ params: [dummyQueryOptions], stream: true })
   getDeletes(options: SyncQueryOptions) {
     return this.auditQuery('person_audit', options)
-      .select(['id', 'personGroupId as personId'])
-      .where('ownerId', '=', options.userId)
+      .select(['id', 'person_audit.personGroupId as personId'])
+      .innerJoin('person', (join) => join.onRef('person_audit.personGroupId', '=', 'person.personGroupId'))
+      .where((eb) =>
+        eb.or([
+          eb('person.ownerId', 'in', (eb2) =>
+            eb2
+              .selectFrom('viewer')
+              .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+              .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
+              .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
+              .select('asset.ownerId')
+              .where('viewer.userId', '=', options.userId)
+              .whereRef('asset.libraryId', '=', 'library.id'),
+          ),
+          eb('person.ownerId', '=', options.userId),
+        ]),
+      )
       .stream();
   }
 
@@ -435,22 +506,60 @@ class PersonSync extends BaseSync {
 
   @GenerateSql({ params: [dummyQueryOptions], stream: true })
   getUpserts(options: SyncQueryOptions) {
-    return this.upsertQuery('person', options)
-      .select([
-        'personGroupId as id',
-        'createdAt',
-        'updatedAt',
-        'ownerId',
-        'name',
-        'birthDate',
-        'isHidden',
-        'isFavorite',
-        'color',
-        'updateId',
-        'faceAssetId',
-      ])
-      .where('ownerId', '=', options.userId)
-      .stream();
+    const effectiveOwner = sql<string>`
+    case when person."ownerId" = ${options.userId}
+         then person."ownerId"
+         else coalesce(override."userId", person."ownerId")
+    end`;
+
+    return (
+      this.upsertQuery('person', options)
+        .select([
+          'personGroupId as id',
+          'createdAt',
+          'updatedAt',
+          //'ownerId',
+          'name',
+          'birthDate',
+          'isHidden',
+          'isFavorite',
+          'color',
+          'updateId',
+          'faceAssetId',
+        ])
+        //.where('ownerId', '=', options.userId)
+        .where((eb) =>
+          eb.or([
+            eb('person.ownerId', 'in', (eb2) =>
+              eb2
+                .selectFrom('viewer')
+                .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+                .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
+                .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
+                .select('asset.ownerId')
+                .where('viewer.userId', '=', options.userId)
+                .whereRef('asset.libraryId', '=', 'library.id'),
+            ),
+            eb('person.ownerId', '=', options.userId),
+          ]),
+        )
+        .leftJoinLateral(
+          (eb) =>
+            eb
+              .selectFrom('viewer')
+              .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+              .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
+              .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
+              .select('viewer.userId')
+              .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+              .where('viewer.userId', '=', options.userId)
+              .limit(1)
+              .as('override'),
+          (join) => join.onTrue(),
+        )
+        .select(effectiveOwner.as('ownerId'))
+        .stream()
+    );
   }
 }
 
@@ -490,16 +599,32 @@ class AssetFaceSync extends BaseSync {
   // TODO(v5) drop when AssetFacesV2 is removed
   @GenerateSql({ params: [dummyQueryOptions], stream: true })
   getUpsertsV2(options: SyncQueryOptions) {
-    return this.upsertQuery('asset_face', options)
-      .select(columns.syncAssetFace)
-      .select('asset_face.updateId')
-      .leftJoin('asset', 'asset.id', 'asset_face.assetId')
-      .where('asset.ownerId', '=', options.userId)
-      .stream();
+    //console.log('V2');
+    return (
+      this.upsertQuery('asset_face', options)
+        .select('asset_face.updateId')
+        .leftJoin('asset', 'asset.id', 'asset_face.assetId')
+        .select(columns.syncAssetFace)
+        //.where('asset.ownerId', '=', options.userId)
+        .leftJoinLateral(
+          (eb) =>
+            eb
+              .selectFrom('viewer')
+              .select('viewer.userId')
+              .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+              .where('viewer.userId', '=', options.userId)
+              .limit(1)
+              .as('override'),
+          (join) => join.onTrue(),
+        )
+        .where((eb) => hasAssetAccess(eb, options.userId))
+        .stream()
+    );
   }
 
   @GenerateSql({ params: [dummyQueryOptions], stream: true })
   getUpsertsV3(options: SyncQueryOptions) {
+    //console.log('V3');
     return this.upsertQuery('asset_face', options)
       .select(columns.syncAssetFace)
       .select('asset_face.updateId')

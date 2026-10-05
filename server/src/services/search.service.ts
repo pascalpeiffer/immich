@@ -167,6 +167,7 @@ export class SearchService extends BaseService {
 
   async searchSmart(auth: AuthDto, dto: SmartSearchDto): Promise<SearchResponseDto> {
     if (isNewShapeRequest(dto)) {
+      //TODO: current viewer implemntation should be compatible but no tests yet.
       return this.searchSmartV3(auth, dto);
     }
 
@@ -183,7 +184,7 @@ export class SearchService extends BaseService {
     const embedding = await this.resolveEmbedding(auth, dto, machineLearning);
     const page = dto.page ?? 1;
     const size = dto.size;
-    const { hasNextPage, items } = await this.searchRepository.searchSmart(
+    const result = await this.searchRepository.searchSmart(
       { page, size },
       {
         ...dto,
@@ -193,6 +194,15 @@ export class SearchService extends BaseService {
         visibility: dto.visibility ?? (auth.session?.hasElevatedPermission ? undefined : 'not-locked'),
       },
     );
+    const hasNextPage = result.hasNextPage;
+    let items = result.items;
+
+    const ownedIds = new Set(items.filter((a) => a.ownerId === auth.user.id).map((a) => a.id));
+    const idsToCheck = items.filter((a) => !ownedIds.has(a.id)).map((a) => a.id);
+
+    const viewableIds = await this.accessRepository.asset.checkViewerAccess(auth.user.id, new Set(idsToCheck));
+
+    items = items.filter((a) => ownedIds.has(a.id) || viewableIds.has(a.id));
 
     return this.mapResponse(items, { auth }, { nextPage: hasNextPage ? (page + 1).toString() : null });
   }
@@ -363,7 +373,16 @@ export class SearchService extends BaseService {
       repository: this.partnerRepository,
       timelineEnabled: true,
     });
-    return [auth.user.id, ...partnerIds];
+
+    const viewerIds: string[] = [];
+    const viewers = await this.viewerRepository.getByUserId(auth.user.id);
+    for (const viewer of viewers) {
+      const library = await this.libraryRepository.get(viewer.libraryId);
+      //if (library && !viewerIds.includes(library.ownerId)) viewerIds.push(library.ownerId);
+      //TODO: WRONG VIEWER ASSETS ARE PER LIBRARY NOT PER USER. NEED TO CHECK IF THE VIEWER HAS ACCESS TO THE ASSET
+    }
+
+    return [auth.user.id, ...partnerIds, ...viewerIds];
   }
 
   private mapResponse(

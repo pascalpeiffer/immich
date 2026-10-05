@@ -10,7 +10,14 @@ import { AssetFaceTable } from 'src/schema/tables/asset-face.table.js';
 import { FaceSearchTable } from 'src/schema/tables/face-search.table.js';
 import { PersonGroupTable } from 'src/schema/tables/person-group.table.js';
 import { PersonTable } from 'src/schema/tables/person.table.js';
-import { asUuid, dummy, inSharedAlbum, removeUndefinedKeys, withFilePath } from 'src/utils/database.js';
+import {
+  asUuid,
+  assetInViewedLibrary,
+  dummy,
+  inSharedAlbum,
+  removeUndefinedKeys,
+  withFilePath,
+} from 'src/utils/database.js';
 import { type PaginationOptions, paginationHelper } from 'src/utils/pagination.js';
 
 export interface PersonSearchOptions {
@@ -82,7 +89,21 @@ const withPerson = ({ viewingUserId }: WithPersonOptions) => {
         .selectFrom('person')
         .selectAll('person')
         .whereRef('person.personGroupId', '=', 'asset_face.personGroupId')
-        .where('person.ownerId', '=', viewingUserId),
+        .where((eb) =>
+          eb.or([
+            eb('person.ownerId', '=', viewingUserId),
+            eb('person.ownerId', 'in', (qb) =>
+              qb
+                .selectFrom('viewer')
+                .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+                .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
+                .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
+                .select('asset.ownerId')
+                .where('viewer.userId', '=', viewingUserId)
+                .whereRef('asset.libraryId', '=', 'library.id'),
+            ),
+          ]),
+        ),
     ).as('person');
 };
 
@@ -242,7 +263,21 @@ export class PersonRepository {
           .on('asset.visibility', '=', sql.lit(AssetVisibility.Timeline))
           .on('asset.deletedAt', 'is', null),
       )
-      .where('person.ownerId', '=', userId)
+      .where((eb) =>
+        eb.or([
+          eb('person.ownerId', 'in', (eb2) =>
+            eb2
+              .selectFrom('viewer')
+              .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+              .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
+              .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
+              .select('asset.ownerId')
+              .where('viewer.userId', '=', userId)
+              .whereRef('asset.libraryId', '=', 'library.id'),
+          ),
+          eb('person.ownerId', '=', userId),
+        ]),
+      )
       .where('asset_face.deletedAt', 'is', null)
       .where('asset_face.isVisible', 'is', true)
       .orderBy('person.isHidden', 'asc')
@@ -284,7 +319,7 @@ export class PersonRepository {
       .$if(!options?.closestFaceAssetId, (qb) =>
         qb
           .orderBy(sql`NULLIF(person.name, '') is null`, 'asc')
-          .orderBy((eb) => eb.fn.count('asset_face.assetId'), 'desc')
+          .orderBy((eb) => eb.fn.count('asset_face.assetId'), 'desc') //TODO only count assetIds if viewing user can access those
           .orderBy(sql`NULLIF(person.name, '')`, (om) => om.asc().nullsLast())
           .orderBy('person.createdAt'),
       )
@@ -399,7 +434,21 @@ export class PersonRepository {
       .selectFrom('person')
       .selectAll('person')
       .where('person.personGroupId', '=', personGroupId)
-      .where('person.ownerId', '=', ownerId)
+      .where((eb) =>
+        eb.or([
+          eb('person.ownerId', 'in', (eb2) =>
+            eb2
+              .selectFrom('viewer')
+              .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+              .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
+              .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
+              .select('asset.ownerId')
+              .where('viewer.userId', '=', ownerId)
+              .whereRef('asset.libraryId', '=', 'library.id'),
+          ),
+          eb('person.ownerId', '=', ownerId),
+        ]),
+      )
       .executeTakeFirst();
   }
 
@@ -439,7 +488,13 @@ export class PersonRepository {
           .onRef('asset.id', '=', 'asset_face.assetId')
           .on('asset.visibility', '=', sql.lit(AssetVisibility.Timeline))
           .on('asset.deletedAt', 'is', null)
-          .on((eb) => eb.or([eb('asset.ownerId', '=', asUuid(userId)), inSharedAlbum(eb, userId)])),
+          .on((eb) =>
+            eb.or([
+              eb('asset.ownerId', '=', asUuid(userId)),
+              inSharedAlbum(eb, userId),
+              assetInViewedLibrary(eb, userId),
+            ]),
+          ),
       )
       .select((eb) => eb.fn.count(eb.fn('distinct', ['asset.id'])).as('count'))
       .where('asset_face.deletedAt', 'is', null)
@@ -475,7 +530,21 @@ export class PersonRepository {
             ),
         ),
       )
-      .where('person.ownerId', '=', userId)
+      .where((eb) =>
+        eb.or([
+          eb('person.ownerId', 'in', (eb2) =>
+            eb2
+              .selectFrom('viewer')
+              .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+              .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
+              .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
+              .select('asset.ownerId')
+              .where('viewer.userId', '=', userId)
+              .whereRef('asset.libraryId', '=', 'library.id'),
+          ),
+          eb('person.ownerId', '=', userId),
+        ]),
+      )
       .select((eb) => eb.fn.coalesce(eb.fn.countAll<number>(), zero).as('total'))
       .select((eb) => eb.fn.coalesce(eb.fn.countAll<number>().filterWhere('isHidden', '=', true), zero).as('hidden'))
       .executeTakeFirstOrThrow();

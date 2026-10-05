@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { type Kysely, type NotNull, sql } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
 import { ChunkedSet, DummyValue, GenerateSql } from 'src/decorators.js';
-import { AlbumUserRole, AssetVisibility } from 'src/enum.js';
+import { AlbumUserRole, AssetVisibility, ViewerAlbumAccess } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
 import { asUuid } from 'src/utils/database.js';
 
@@ -118,6 +118,87 @@ class AlbumAccess {
 
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
   @ChunkedSet({ paramIndex: 1 })
+  async checkViewerAlbumAccess(userId: string, assetIds: Set<string>, access: ViewerAlbumAccess) {
+    if (assetIds.size === 0) {
+      return new Set<string>();
+    }
+
+    const accessRole = [access];
+
+    if (access === ViewerAlbumAccess.Write) {
+      accessRole.push(ViewerAlbumAccess.Read);
+    }
+
+    console.log(accessRole);
+
+    return this.db
+      .selectFrom('album')
+      .select('album.id')
+      .where('album.deletedAt', 'is', null)
+      .rightJoin('album_asset', 'album_asset.albumId', 'album.id')
+      .rightJoin('asset', 'asset.id', 'album_asset.assetId')
+      .rightJoin('library', 'library.id', 'asset.libraryId')
+      .rightJoin('viewer', 'viewer.libraryId', 'library.id')
+      .where('viewer.albumAccess', 'in', [...accessRole])
+      .where('viewer.userId', '=', userId)
+      .execute()
+      .then((albums) => new Set(albums.map((album) => album.id)));
+
+    return (
+      this.db
+        .with('target', (qb) => qb.selectNoFrom(sql`array[${sql.join([...assetIds])}]::uuid[]`.as('ids')))
+        .selectFrom('asset')
+        .innerJoin('library', (join) =>
+          join.onRef('library.id', '=', 'asset.libraryId').on('library.deletedAt', 'is', null),
+        )
+        .crossJoin('target')
+        .select(['asset.id', 'asset.livePhotoVideoId'])
+        .where((eb) =>
+          eb(
+            eb
+              .selectFrom('viewer')
+              .select('viewer.albumAccess')
+              .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+              .where('viewer.userId', '=', userId),
+            '=',
+            access,
+          ),
+        )
+        .where((eb) =>
+          eb.or([
+            eb('asset.id', '=', sql<string>`any(target.ids)`),
+            eb('asset.livePhotoVideoId', '=', sql<string>`any(target.ids)`),
+          ]),
+        )
+        .where('asset.visibility', '!=', sql.lit(AssetVisibility.Locked))
+        //.where(sql<boolean>`${userId} = any(library."viewerIds")`)
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('viewer')
+              .select('viewer.userId')
+              .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+              .where('viewer.userId', '=', userId),
+          ),
+        )
+        .execute()
+        .then((assets) => {
+          const allowedIds = new Set<string>();
+          for (const asset of assets) {
+            if (asset.id && assetIds.has(asset.id)) {
+              allowedIds.add(asset.id);
+            }
+            if (asset.livePhotoVideoId && assetIds.has(asset.livePhotoVideoId)) {
+              allowedIds.add(asset.livePhotoVideoId);
+            }
+          }
+          return allowedIds;
+        })
+    );
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
+  @ChunkedSet({ paramIndex: 1 })
   async checkSharedLinkAccess(sharedLinkId: string, albumIds: Set<string>) {
     if (albumIds.size === 0) {
       return new Set<string>();
@@ -180,6 +261,194 @@ class AssetAccess {
         }
         return allowedIds;
       });
+  }
+
+  //TODO find a better way to check viewer access the code is redundant
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
+  @ChunkedSet({ paramIndex: 1 })
+  async checkViewerAccess(userId: string, assetIds: Set<string>) {
+    if (assetIds.size === 0) {
+      return new Set<string>();
+    }
+
+    return (
+      this.db
+        .with('target', (qb) => qb.selectNoFrom(sql`array[${sql.join([...assetIds])}]::uuid[]`.as('ids')))
+        .selectFrom('asset')
+        .innerJoin('library', (join) =>
+          join.onRef('library.id', '=', 'asset.libraryId').on('library.deletedAt', 'is', null),
+        )
+        .crossJoin('target')
+        .select(['asset.id', 'asset.livePhotoVideoId'])
+        .where((eb) =>
+          eb.or([
+            eb('asset.deletedAt', 'is', null),
+            eb.or([
+              eb('asset.ownerId', '=', userId),
+              eb(
+                eb
+                  .selectFrom('viewer')
+                  .select('viewer.delete')
+                  .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+                  .where('viewer.userId', '=', userId),
+                '=',
+                true,
+              ),
+            ]),
+          ]),
+        )
+        .where((eb) =>
+          eb.or([
+            eb('asset.id', '=', sql<string>`any(target.ids)`),
+            eb('asset.livePhotoVideoId', '=', sql<string>`any(target.ids)`),
+          ]),
+        )
+        .where('asset.visibility', '!=', sql.lit(AssetVisibility.Locked))
+        //.where(sql<boolean>`${userId} = any(library."viewerIds")`)
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('viewer')
+              .select('viewer.userId')
+              .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+              .where('viewer.userId', '=', userId),
+          ),
+        )
+        .execute()
+        .then((assets) => {
+          const allowedIds = new Set<string>();
+          for (const asset of assets) {
+            if (asset.id && assetIds.has(asset.id)) {
+              allowedIds.add(asset.id);
+            }
+            if (asset.livePhotoVideoId && assetIds.has(asset.livePhotoVideoId)) {
+              allowedIds.add(asset.livePhotoVideoId);
+            }
+          }
+          return allowedIds;
+        })
+    );
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
+  @ChunkedSet({ paramIndex: 1 })
+  async checkViewerDeleteAccess(userId: string, assetIds: Set<string>) {
+    if (assetIds.size === 0) {
+      return new Set<string>();
+    }
+
+    return (
+      this.db
+        .with('target', (qb) => qb.selectNoFrom(sql`array[${sql.join([...assetIds])}]::uuid[]`.as('ids')))
+        .selectFrom('asset')
+        .innerJoin('library', (join) =>
+          join.onRef('library.id', '=', 'asset.libraryId').on('library.deletedAt', 'is', null),
+        )
+        .crossJoin('target')
+        .select(['asset.id', 'asset.livePhotoVideoId'])
+        .where((eb) =>
+          eb(
+            eb
+              .selectFrom('viewer')
+              .select('viewer.delete')
+              .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+              .where('viewer.userId', '=', userId),
+            '=',
+            true,
+          ),
+        )
+        .where((eb) =>
+          eb.or([
+            eb('asset.id', '=', sql<string>`any(target.ids)`),
+            eb('asset.livePhotoVideoId', '=', sql<string>`any(target.ids)`),
+          ]),
+        )
+        .where('asset.visibility', '!=', sql.lit(AssetVisibility.Locked))
+        //.where(sql<boolean>`${userId} = any(library."viewerIds")`)
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('viewer')
+              .select('viewer.userId')
+              .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+              .where('viewer.userId', '=', userId),
+          ),
+        )
+        .execute()
+        .then((assets) => {
+          const allowedIds = new Set<string>();
+          for (const asset of assets) {
+            if (asset.id && assetIds.has(asset.id)) {
+              allowedIds.add(asset.id);
+            }
+            if (asset.livePhotoVideoId && assetIds.has(asset.livePhotoVideoId)) {
+              allowedIds.add(asset.livePhotoVideoId);
+            }
+          }
+          return allowedIds;
+        })
+    );
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
+  @ChunkedSet({ paramIndex: 1 })
+  async checkViewerEditAccess(userId: string, assetIds: Set<string>) {
+    if (assetIds.size === 0) {
+      return new Set<string>();
+    }
+
+    return (
+      this.db
+        .with('target', (qb) => qb.selectNoFrom(sql`array[${sql.join([...assetIds])}]::uuid[]`.as('ids')))
+        .selectFrom('asset')
+        .innerJoin('library', (join) =>
+          join.onRef('library.id', '=', 'asset.libraryId').on('library.deletedAt', 'is', null),
+        )
+        .crossJoin('target')
+        .select(['asset.id', 'asset.livePhotoVideoId'])
+        .where((eb) =>
+          eb(
+            eb
+              .selectFrom('viewer')
+              .select('viewer.edit')
+              .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+              .where('viewer.userId', '=', userId),
+            '=',
+            true,
+          ),
+        )
+        .where((eb) =>
+          eb.or([
+            eb('asset.id', '=', sql<string>`any(target.ids)`),
+            eb('asset.livePhotoVideoId', '=', sql<string>`any(target.ids)`),
+          ]),
+        )
+        .where('asset.visibility', '!=', sql.lit(AssetVisibility.Locked))
+        //.where(sql<boolean>`${userId} = any(library."viewerIds")`)
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('viewer')
+              .select('viewer.userId')
+              .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+              .where('viewer.userId', '=', userId),
+          ),
+        )
+        .execute()
+        .then((assets) => {
+          const allowedIds = new Set<string>();
+          for (const asset of assets) {
+            if (asset.id && assetIds.has(asset.id)) {
+              allowedIds.add(asset.id);
+            }
+            if (asset.livePhotoVideoId && assetIds.has(asset.livePhotoVideoId)) {
+              allowedIds.add(asset.livePhotoVideoId);
+            }
+          }
+          return allowedIds;
+        })
+    );
   }
 
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
@@ -533,6 +802,39 @@ class PersonAccess {
       .where('person.ownerId', '=', userId)
       .execute()
       .then((persons) => new Set(persons.map((person) => person.personGroupId)));
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
+  @ChunkedSet({ paramIndex: 1 })
+  async checkViewerAccess(userId: string, personGroupIds: Set<string>) {
+    if (personGroupIds.size === 0) {
+      return new Set<string>();
+    }
+
+    return (
+      this.db
+        .selectFrom('person')
+        .select('person.personGroupId')
+        .where('person.personGroupId', 'in', [...personGroupIds])
+        /*.where('person.ownerId', 'in', (eb) => {
+        return eb
+          .selectFrom('library')
+          .select('library.ownerId')
+          .where(sql<boolean>`${userId} = any(library."viewerIds")`);
+      })*/
+        .where('person.ownerId', 'in', (eb) => {
+          return eb
+            .selectFrom('viewer')
+            .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+            .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
+            .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
+            .select('asset.ownerId')
+            .where('viewer.userId', '=', userId)
+            .whereRef('asset.libraryId', '=', 'library.id');
+        })
+        .execute()
+        .then((persons) => new Set(persons.map((person) => person.personGroupId)))
+    );
   }
 
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })

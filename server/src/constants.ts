@@ -206,6 +206,7 @@ export const endpointTags: Record<ApiTag, string> = {
   [ApiTag.Users]:
     'Endpoints for viewing and updating the current users, including product key information, profile picture data, onboarding progress, and more.',
   [ApiTag.Views]: 'Endpoints for specialized views, such as the folder view.',
+  [ApiTag.Viewer]: 'Endpoint for library viewer function',
   [ApiTag.Workflows]:
     'A workflow is a set of actions that run whenever a triggering event occurs. Workflows also can include filters to further limit execution.',
 };

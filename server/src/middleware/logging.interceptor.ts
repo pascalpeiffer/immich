@@ -27,6 +27,9 @@ export class LoggingInterceptor implements NestInterceptor {
     const req = handler.getRequest<Request>();
     const res = handler.getResponse<Response>();
 
+    console.log(req.method + ': ' + req.url);
+    //console.log();
+
     const { method, ip, url } = req;
 
     const start = performance.now();

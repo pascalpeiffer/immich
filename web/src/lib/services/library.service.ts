@@ -6,9 +6,15 @@ import {
   runQueueCommandLegacy,
   scanLibrary,
   updateLibrary,
+  createViewer,
+  deleteViewer,
+  updateViewer,
   type CreateLibraryDto,
   type LibraryResponseDto,
   type UpdateLibraryDto,
+  type UserResponseDto,
+  type ViewerResponseDto,
+  type ViewerUpdateDto,
 } from '@immich/sdk';
 import { modalManager, toastManager, type ActionItem } from '@immich/ui';
 import { mdiInformationOutline, mdiPencilOutline, mdiPlusBoxOutline, mdiSync, mdiTrashCanOutline } from '@mdi/js';
@@ -19,6 +25,7 @@ import LibraryExclusionPatternAddModal from '$lib/modals/LibraryExclusionPattern
 import LibraryExclusionPatternEditModal from '$lib/modals/LibraryExclusionPatternEditModal.svelte';
 import LibraryFolderAddModal from '$lib/modals/LibraryFolderAddModal.svelte';
 import LibraryFolderEditModal from '$lib/modals/LibraryFolderEditModal.svelte';
+import LibraryViewerEditModal from '$lib/modals/LibraryViewerEditModal.svelte';
 import { Route } from '$lib/route';
 import { handleError } from '$lib/utils/handle-error';
 import { getFormatter } from '$lib/utils/i18n';
@@ -327,6 +334,93 @@ const handleDeleteExclusionPattern = async (library: LibraryResponseDto, exclusi
       },
     });
     eventManager.emit('LibraryUpdate', updatedLibrary);
+    toastManager.primary($t('admin.library_updated'));
+  } catch (error) {
+    handleError(error, $t('errors.unable_to_update_library'));
+  }
+};
+
+export const getLibraryViewerActions = (
+  $t: MessageFormatter,
+  library: LibraryResponseDto,
+  userId: string,
+  viewers: ViewerResponseDto[],
+) => {
+  const Edit: ActionItem = {
+    icon: mdiPencilOutline,
+    title: $t('edit'),
+    onAction: () => modalManager.show(LibraryViewerEditModal, { library, userId, viewers }),
+  };
+
+  const Delete: ActionItem = {
+    icon: mdiTrashCanOutline,
+    title: $t('delete'),
+    onAction: () => handleDeleteLibraryViewer(library, userId, viewers),
+  };
+
+  return { Edit, Delete };
+};
+
+export const handleAddLibraryViewer = async (library: LibraryResponseDto, users: UserResponseDto[], viewers: ViewerResponseDto[]) => {
+  const $t = await getFormatter();
+
+  for (const user of users) {
+    if (!viewers.map((v) => v.userId).includes(user.id)) {
+    	continue;
+    }
+
+    toastManager.danger($t('errors.library_viewer_already_exists'));
+    return false;
+  }
+
+  try {
+    for (const user of users) {
+      await createViewer({ viewerCreateDto: { libraryId: library.id, userId: user.id } });
+    }
+    eventManager.emit('LibraryUpdate', library); //HUH
+    toastManager.primary($t('admin.library_updated'));
+  } catch (error) {
+    handleError(error, $t('errors.unable_to_update_library'));
+    return false;
+  }
+
+  return true;
+};
+
+export const handleEditLibraryViewer = async (library: LibraryResponseDto, userId: string, viewers: ViewerResponseDto[], updateDto: ViewerUpdateDto) => {
+  const $t = await getFormatter();
+
+  try {
+    const viewer = viewers.find((v) => v.userId === userId);
+    if (!viewer) {return false;}
+    await updateViewer({id: viewer.id, viewerUpdateDto: updateDto});
+
+    eventManager.emit('LibraryUpdate', library); //HUH
+    toastManager.primary($t('admin.library_updated'));
+  } catch (error) {
+    handleError(error, $t('errors.unable_to_update_library'));
+  }
+  return true;
+};
+
+export const handleDeleteLibraryViewer = async (library: LibraryResponseDto, userId: string, viewers: ViewerResponseDto[]) => {
+  const $t = await getFormatter();
+
+  const confirmed = await modalManager.showDialog({
+    prompt: $t('admin.library_remove_viewer_prompt'),
+    confirmText: $t('remove'),
+  });
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const viewersToRemove = viewers.filter((v) => v.userId === userId);
+    for (const element of viewersToRemove) {
+      await deleteViewer(element);
+    }
+    eventManager.emit('LibraryUpdate', library); //HUH
     toastManager.primary($t('admin.library_updated'));
   } catch (error) {
     handleError(error, $t('errors.unable_to_update_library'));

@@ -1,5 +1,13 @@
 import { registerEnum } from '@immich/sql-tools';
-import { AlbumUserRole, AssetStatus, AssetVisibility, ChecksumAlgorithm, SourceType, VideoCodec } from 'src/enum.js';
+import {
+  AlbumUserRole,
+  AssetStatus,
+  AssetVisibility,
+  ChecksumAlgorithm,
+  SourceType,
+  VideoCodec,
+  ViewerAlbumAccess,
+} from 'src/enum.js';
 
 export const album_user_role_enum = registerEnum({
   name: 'album_user_role_enum',
@@ -19,6 +27,11 @@ export const asset_face_source_type = registerEnum({
 export const asset_visibility_enum = registerEnum({
   name: 'asset_visibility_enum',
   values: Object.values(AssetVisibility),
+});
+
+export const viewer_album_access_enum = registerEnum({
+  name: 'viewer_album_access_enum',
+  values: Object.values(ViewerAlbumAccess),
 });
 
 export const asset_checksum_algorithm_enum = registerEnum({

@@ -30,23 +30,48 @@ export class MemoryRepository implements IBulkAsset {
   }
 
   searchBuilder(ownerId: string, dto: MemorySearchDto) {
-    return this.db
-      .selectFrom('memory')
-      .$if(dto.isSaved !== undefined, (qb) => qb.where('isSaved', '=', dto.isSaved!))
-      .$if(dto.type !== undefined, (qb) => qb.where('type', '=', dto.type!))
-      .$if(dto.for !== undefined, (qb) =>
-        qb
-          .where((where) => where.or([where('showAt', 'is', null), where('showAt', '<=', dto.for!)]))
-          .where((where) => where.or([where('hideAt', 'is', null), where('hideAt', '>=', dto.for!)])),
-      )
-      .$if(dto.isUpcoming !== undefined, (qb) => {
-        const now = DateTime.now().toJSDate();
-        return dto.isUpcoming
-          ? qb.where('showAt', '>', now)
-          : qb.where((where) => where.or([where('showAt', 'is', null), where('showAt', '<=', now)]));
-      })
-      .where('deletedAt', dto.isTrashed ? 'is not' : 'is', null)
-      .where('ownerId', '=', ownerId);
+    return (
+      this.db
+        .selectFrom('memory')
+        .$if(dto.isSaved !== undefined, (qb) => qb.where('isSaved', '=', dto.isSaved!))
+        .$if(dto.type !== undefined, (qb) => qb.where('type', '=', dto.type!))
+        .$if(dto.for !== undefined, (qb) =>
+          qb
+            .where((where) => where.or([where('showAt', 'is', null), where('showAt', '<=', dto.for!)]))
+            .where((where) => where.or([where('hideAt', 'is', null), where('hideAt', '>=', dto.for!)])),
+        )
+        .$if(dto.isUpcoming !== undefined, (qb) => {
+          const now = DateTime.now().toJSDate();
+          return dto.isUpcoming
+            ? qb.where('showAt', '>', now)
+            : qb.where((where) => where.or([where('showAt', 'is', null), where('showAt', '<=', now)]));
+        })
+        //TODO: check if this is correct logic / efficiency wise.
+        .where('memory.deletedAt', dto.isTrashed ? 'is not' : 'is', null)
+        .rightJoin('memory_asset', 'memory.id', 'memory_asset.memoriesId')
+        .rightJoin('asset', 'memory_asset.assetId', 'asset.id')
+        .where((eb2) =>
+          eb2.or([
+            /*eb2('memory.ownerId', 'in', (eb3) =>
+              eb3
+                .selectFrom('library')
+                .select('library.ownerId')
+                .whereRef('library.id', '=', 'asset.libraryId')
+                .where(sql<boolean>`${ownerId} = any(library."viewerIds")`),
+            ),*/
+            eb2('memory.ownerId', 'in', (eb3) =>
+              eb3
+                .selectFrom('viewer')
+                .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+                .select('asset.ownerId')
+                .whereRef('asset.libraryId', '=', 'library.id')
+                .where('viewer.userId', '=', ownerId),
+            ),
+            eb2('memory.ownerId', '=', ownerId),
+          ]),
+        )
+        .$castTo<MemoryTable>()
+    );
   }
 
   @GenerateSql(

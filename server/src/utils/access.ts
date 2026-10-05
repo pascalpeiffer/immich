@@ -1,7 +1,7 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { AuthSharedLink } from 'src/database.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
-import { AlbumUserRole, Permission } from 'src/enum.js';
+import { AlbumUserRole, Permission, ViewerAlbumAccess } from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { areSetsEqual, isSetSuperset, setDifference, setUnion } from 'src/utils/set.js';
 
@@ -117,7 +117,11 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
       const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
       const isAlbum = await access.asset.checkAlbumAccess(auth.user.id, setDifference(ids, isOwner));
       const isPartner = await access.asset.checkPartnerAccess(auth.user.id, setDifference(ids, isOwner, isAlbum));
-      return setUnion(isOwner, isAlbum, isPartner);
+      const isViewer = await access.asset.checkViewerAccess(
+        auth.user.id,
+        setDifference(ids, isOwner, isAlbum, isPartner),
+      );
+      return setUnion(isOwner, isAlbum, isPartner, isViewer);
     }
 
     case Permission.AssetShare: {
@@ -134,22 +138,39 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
       const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
       const isAlbum = await access.asset.checkAlbumAccess(auth.user.id, setDifference(ids, isOwner));
       const isPartner = await access.asset.checkPartnerAccess(auth.user.id, setDifference(ids, isOwner, isAlbum));
-      return setUnion(isOwner, isAlbum, isPartner);
+      const isViewer = await access.asset.checkViewerAccess(
+        auth.user.id,
+        setDifference(ids, isOwner, isAlbum, isPartner),
+      );
+      return setUnion(isOwner, isAlbum, isPartner, isViewer);
     }
 
     case Permission.AssetDownload: {
       const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
       const isAlbum = await access.asset.checkAlbumAccess(auth.user.id, setDifference(ids, isOwner));
       const isPartner = await access.asset.checkPartnerAccess(auth.user.id, setDifference(ids, isOwner, isAlbum));
-      return setUnion(isOwner, isAlbum, isPartner);
+      const isViewer = await access.asset.checkViewerAccess(
+        auth.user.id,
+        setDifference(ids, isOwner, isAlbum, isPartner),
+      );
+      return setUnion(isOwner, isAlbum, isPartner, isViewer);
     }
 
     case Permission.AssetUpdate: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      //TODO check wether other fileds than vis and fav should be editable
+      const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isViewer = await access.asset.checkViewerAccess(auth.user.id, setDifference(ids, isOwner));
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.AssetDelete: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const canViewerDelete = await access.asset.checkViewerDeleteAccess(auth.user.id, ids);
+      const canOwnerDelete = await access.asset.checkOwnerAccess(
+        auth.user.id,
+        ids,
+        auth.session?.hasElevatedPermission,
+      );
+      return setUnion(canViewerDelete, canOwnerDelete);
     }
 
     case Permission.AssetCopy: {
@@ -157,15 +178,21 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.AssetEditGet: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isViewer = await access.asset.checkViewerAccess(auth.user.id, setDifference(ids, isOwner));
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.AssetEditCreate: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isViewer = await access.asset.checkViewerEditAccess(auth.user.id, setDifference(ids, isOwner));
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.AssetEditDelete: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isViewer = await access.asset.checkViewerEditAccess(auth.user.id, setDifference(ids, isOwner));
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.AssetFileRead:
@@ -180,7 +207,12 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
         setDifference(ids, isOwner),
         AlbumUserRole.Viewer,
       );
-      return setUnion(isOwner, isShared);
+      const isReadViewer = await access.album.checkViewerAlbumAccess(
+        auth.user.id,
+        setDifference(ids, isOwner, isShared),
+        ViewerAlbumAccess.Read,
+      );
+      return setUnion(isOwner, isShared, isReadViewer);
     }
 
     case Permission.AlbumAssetCreate: {
@@ -238,6 +270,7 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.AssetUpload: {
+      //Revoke access here to prevent users from uploading
       return ids.has(auth.user.id) ? new Set([auth.user.id]) : new Set<string>();
     }
 
@@ -282,6 +315,7 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.MemoryRead: {
+      //TODO: Add viewer access to the memory read permission
       return access.memory.checkOwnerAccess(auth.user.id, ids);
     }
 
@@ -297,11 +331,16 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
       return access.person.checkFaceOwnerAccess(auth.user.id, ids);
     }
 
-    case Permission.PersonRead:
+    case Permission.PersonRead: {
+      const isViewer = await access.person.checkViewerAccess(auth.user.id, ids);
+      const isOwner = await access.person.checkOwnerAccess(auth.user.id, setDifference(ids, isViewer));
+      return setUnion(isViewer, isOwner);
+    }
+
     case Permission.PersonUpdate:
     case Permission.PersonDelete:
     case Permission.PersonMerge: {
-      return await access.person.checkOwnerAccess(auth.user.id, ids);
+      return access.person.checkOwnerAccess(auth.user.id, ids);
     }
 
     case Permission.PersonReassign: {
@@ -350,6 +389,16 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
 
     case Permission.StackDelete: {
       return access.stack.checkOwnerAccess(auth.user.id, ids);
+    }
+
+    case Permission.ViewerRead:
+    case Permission.ViewerDelete:
+    case Permission.ViewerUpdate: {
+      return new Promise((resolve) => resolve(ids)); //TODO correct permissions
+    }
+
+    case Permission.ViewerCreate: {
+      return new Promise((resolve) => resolve(ids)); //TODO correct permissions
     }
 
     case Permission.WorkflowRead:

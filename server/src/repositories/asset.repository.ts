@@ -36,12 +36,13 @@ import { AssetTable } from 'src/schema/tables/asset.table.js';
 import {
   anyUuid,
   asUuid,
+  hasAssetAccess,
   hasPeople,
   inSharedAlbum,
   removeUndefinedKeys,
   truncatedDate,
   unnest,
-  withDefaultVisibility,
+  withDefaultAssetVisibility,
   withEdits,
   withExif,
   withFaces,
@@ -53,6 +54,7 @@ import {
   withSmartSearch,
   withTagId,
   withTags,
+  withVisibility,
 } from 'src/utils/database.js';
 import { globToPostgresRegex } from 'src/utils/misc.js';
 
@@ -483,7 +485,7 @@ export class AssetRepository {
                 .innerJoin('asset_job_status', 'asset.id', 'asset_job_status.assetId')
                 .where(sql`(asset."localDateTime" at time zone 'UTC')::date`, '=', sql`today.date`)
                 .where('asset.ownerId', '=', anyUuid(ownerIds))
-                .where('asset.visibility', '=', AssetVisibility.Timeline)
+                .$call((qb) => withVisibility(qb, [AssetVisibility.Timeline], ownerIds))
                 .where((eb) =>
                   eb.exists((qb) =>
                     qb
@@ -715,8 +717,8 @@ export class AssetRepository {
       .select((eb) => eb.fn.countAll<number>().filterWhere('type', '=', AssetType.Video).as(AssetType.Video))
       .select((eb) => eb.fn.countAll<number>().filterWhere('type', '=', AssetType.Other).as(AssetType.Other))
       .where('ownerId', '=', asUuid(ownerId))
-      .$if(visibility === undefined, withDefaultVisibility)
-      .$if(!!visibility, (qb) => qb.where('asset.visibility', '=', visibility!))
+      .$if(visibility === undefined, (qb) => withDefaultAssetVisibility(qb, [ownerId]))
+      .$if(!!visibility, (qb) => withVisibility(qb, [visibility!], [ownerId]))
       .$if(isFavorite !== undefined, (qb) => qb.where('isFavorite', '=', isFavorite!))
       .$if(!!isTrashed, (qb) => qb.where('asset.status', '!=', AssetStatus.Deleted))
       .where('deletedAt', isTrashed ? 'is not' : 'is', null)
@@ -751,13 +753,56 @@ export class AssetRepository {
 
   @GenerateSql({ params: [{}, { user: { id: DummyValue.UUID } }] })
   async getTimeBuckets(options: TimeBucketOptions, auth: AuthDto): Promise<TimeBucketItem[]> {
+    // Owner sees the asset's own values, everyone else sees the viewer_asset override if there is one.
+    const isOwner = sql<boolean>`asset."ownerId" = ${auth.user.id}`;
+    const effectiveVisibility = sql<AssetVisibility>`
+    case when ${isOwner} then asset.visibility
+    else coalesce(viewer_override.visibility, 'timeline') end`; //default timeline?
+    const effectiveIsFavorite = sql<boolean>`
+    case when ${isOwner} then asset."isFavorite"
+    else coalesce(viewer_override."isFavorite", false) end`;
+
     return this.db
       .with('asset', (qb) =>
         qb
           .selectFrom('asset')
+          // at most one override row per asset for the current viewer
+          .leftJoinLateral(
+            (eb) =>
+              eb
+                .selectFrom('viewer_asset')
+                .innerJoin('viewer', 'viewer.id', 'viewer_asset.viewerId')
+                .select(['viewer_asset.visibility', 'viewer_asset.isFavorite'])
+                .whereRef('viewer_asset.assetId', '=', 'asset.id')
+                .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+                .where('viewer.userId', '=', auth.user.id)
+                .limit(1)
+                .as('viewer_override'),
+            (join) => join.onTrue(),
+          )
           .select(truncatedDate<Date>(options.orderBy).as('timeBucket'))
           .$if(!!options.isTrashed, (qb) => qb.where('asset.status', '!=', AssetStatus.Deleted))
-          .where('asset.deletedAt', options.isTrashed ? 'is not' : 'is', null)
+          .$if(options.isTrashed === true, (qb) =>
+            qb.where((eb) =>
+              eb.and([
+                eb('asset.deletedAt', 'is not', null),
+                eb.or([
+                  eb('asset.ownerId', '=', auth.user.id),
+                  eb(
+                    eb
+                      .selectFrom('viewer')
+                      .where('viewer.userId', '=', auth.user.id)
+                      .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+                      .select('viewer.delete')
+                      .limit(1),
+                    '=',
+                    true,
+                  ),
+                ]),
+              ]),
+            ),
+          )
+          .$if(options.isTrashed === false, (qb) => qb.where('asset.deletedAt', 'is', null))
           .$if(!!options.bbox, (qb) => {
             const bbox = options.bbox!;
             const circle = getBoundingCircle(bbox);
@@ -772,8 +817,19 @@ export class AssetRepository {
 
             return withBoundingBox(withBoundingCircle, bbox);
           })
-          .$if(options.visibility === undefined, withDefaultVisibility)
-          .$if(!!options.visibility, (qb) => qb.where('asset.visibility', '=', options.visibility!))
+
+          // replaces withDefaultAssetVisibility / withVisibility; filters on the effective visibility
+          .where((eb) =>
+            options.visibility === undefined
+              ? eb(effectiveVisibility, 'in', [sql.lit(AssetVisibility.Archive), sql.lit(AssetVisibility.Timeline)])
+              : eb(effectiveVisibility, '=', options.visibility),
+          )
+
+          // non-owners never get locked assets, whatever the override says
+          .where((eb) =>
+            eb.or([eb('asset.ownerId', '=', auth.user.id), eb('asset.visibility', '!=', AssetVisibility.Locked)]),
+          )
+
           .$if(!!options.albumId, (qb) =>
             qb
               .innerJoin('album_asset', 'asset.id', 'album_asset.assetId')
@@ -791,10 +847,11 @@ export class AssetRepository {
             qb.where((eb) => {
               // TODO this should become a shared `hasAccess` style helper once implement sharing in more places
               const isOwner = eb('asset.ownerId', '=', anyUuid(options.userIds!));
-              return options.personId ? eb.or([isOwner, inSharedAlbum(eb, auth.user.id)]) : isOwner;
+              return eb.or([isOwner, hasAssetAccess(eb, auth.user.id)]);
             }),
           )
-          .$if(options.isFavorite !== undefined, (qb) => qb.where('asset.isFavorite', '=', options.isFavorite!))
+          // filters on the effective value instead of asset.isFavorite
+          .$if(options.isFavorite !== undefined, (qb) => qb.where(effectiveIsFavorite, '=', options.isFavorite!))
           .$if(!!options.assetType, (qb) => qb.where('asset.type', '=', options.assetType!))
           .$if(options.isDuplicate !== undefined, (qb) =>
             qb.where('asset.duplicateId', options.isDuplicate ? 'is not' : 'is', null),
@@ -814,16 +871,41 @@ export class AssetRepository {
   })
   getTimeBucket(timeBucket: string, options: TimeBucketOptions, auth: AuthDto) {
     const order = options.order ?? 'desc';
+
+    // Owner sees the asset's own values, everyone else sees the viewer_asset override if there is one.
+    // Shared between select and where so filtering and output always agree.
+    const isOwner = sql<boolean>`asset."ownerId" = ${auth.user.id}`;
+    const effectiveVisibility = sql<AssetVisibility>`
+    case when ${isOwner} then asset.visibility
+    else coalesce(viewer_override.visibility, asset.visibility) end`;
+    const effectiveIsFavorite = sql<boolean>`
+    case when ${isOwner} then asset."isFavorite"
+    else coalesce(viewer_override."isFavorite", false) end`;
+
     const query = this.db
       .with('cte', (qb) =>
         qb
           .selectFrom('asset')
           .innerJoin('asset_exif', 'asset.id', 'asset_exif.assetId')
+          // at most one override row per asset for the current viewer
+          .leftJoinLateral(
+            (eb) =>
+              eb
+                .selectFrom('viewer_asset')
+                .innerJoin('viewer', 'viewer.id', 'viewer_asset.viewerId')
+                .select(['viewer_asset.visibility', 'viewer_asset.isFavorite'])
+                .whereRef('viewer_asset.assetId', '=', 'asset.id')
+                .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+                .where('viewer.userId', '=', auth.user.id)
+                .limit(1)
+                .as('viewer_override'),
+            (join) => join.onTrue(),
+          )
           .select((eb) => [
             'asset.duration',
             'asset.id',
-            'asset.visibility',
-            sql`asset."isFavorite" and asset."ownerId" = ${auth.user.id}`.as('isFavorite'),
+            effectiveVisibility.as('visibility'),
+            effectiveIsFavorite.as('isFavorite'),
             sql`asset.type = 'IMAGE'`.as('isImage'),
             sql`asset."deletedAt" is not null`.as('isTrashed'),
             'asset.livePhotoVideoId',
@@ -853,8 +935,19 @@ export class AssetRepository {
           )
           .$if(!!options.withCoordinates, (qb) => qb.select(['asset_exif.latitude', 'asset_exif.longitude']))
           .where('asset.deletedAt', options.isTrashed ? 'is not' : 'is', null)
-          .$if(options.visibility === undefined, withDefaultVisibility)
-          .$if(!!options.visibility, (qb) => qb.where('asset.visibility', '=', options.visibility!))
+
+          // replaces withDefaultVisibility / options.visibility; filters on the effective visibility
+          .where((eb) =>
+            options.visibility === undefined
+              ? eb(effectiveVisibility, 'in', [sql.lit(AssetVisibility.Archive), sql.lit(AssetVisibility.Timeline)])
+              : eb(effectiveVisibility, '=', options.visibility),
+          )
+
+          // non-owners never get locked assets, whatever the override says
+          .where((eb) =>
+            eb.or([eb('asset.ownerId', '=', auth.user.id), eb('asset.visibility', '!=', AssetVisibility.Locked)]),
+          )
+
           .$if(!!options.bbox, (qb) => {
             const bbox = options.bbox!;
             const circle = getBoundingCircle(bbox);
@@ -882,10 +975,11 @@ export class AssetRepository {
           .$if(!!options.userIds, (qb) =>
             qb.where((eb) => {
               const isOwner = eb('asset.ownerId', '=', anyUuid(options.userIds!));
-              return options.personId ? eb.or([isOwner, inSharedAlbum(eb, auth.user.id)]) : isOwner;
+              return eb.or([isOwner, hasAssetAccess(eb, auth.user.id)]);
             }),
           )
-          .$if(options.isFavorite !== undefined, (qb) => qb.where('asset.isFavorite', '=', options.isFavorite!))
+          // filters on the effective value instead of asset.isFavorite
+          .$if(options.isFavorite !== undefined, (qb) => qb.where(effectiveIsFavorite, '=', options.isFavorite!))
           .$if(!!options.withStacked, (qb) =>
             qb
               .where((eb) =>
@@ -987,7 +1081,7 @@ export class AssetRepository {
       .distinctOn('asset_exif.city')
       .select(['assetId as data', 'asset_exif.city as value'])
       .$narrowType<{ value: NotNull }>()
-      .where('ownerId', '=', asUuid(ownerId))
+      .where((eb) => hasAssetAccess(eb, ownerId))
       .where('visibility', '=', AssetVisibility.Timeline)
       .where('type', '=', AssetType.Image)
       .where('deletedAt', 'is', null)
@@ -1002,8 +1096,8 @@ export class AssetRepository {
     const items = await this.db
       .selectFrom('asset')
       .select(['id as data', 'createdAt as value'])
-      .where('ownerId', '=', asUuid(ownerId))
-      .where('asset.visibility', '=', AssetVisibility.Timeline)
+      .where((eb) => hasAssetAccess(eb, ownerId))
+      .$call((qb) => withVisibility(qb, [AssetVisibility.Timeline], [ownerId]))
       .where('type', '=', AssetType.Image)
       .where('deletedAt', 'is', null)
       .orderBy('value', 'desc')

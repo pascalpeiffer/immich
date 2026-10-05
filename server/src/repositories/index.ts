@@ -51,6 +51,7 @@ import { UserRepository } from 'src/repositories/user.repository.js';
 import { VersionHistoryRepository } from 'src/repositories/version-history.repository.js';
 import { VideoStreamRepository } from 'src/repositories/video-stream.repository.js';
 import { ViewRepository } from 'src/repositories/view-repository.js';
+import { ViewerRepository } from 'src/repositories/viewer.repository.js';
 import { WebsocketRepository } from 'src/repositories/websocket.repository.js';
 import { WorkflowRepository } from 'src/repositories/workflow.repository.js';
 
@@ -108,6 +109,7 @@ export const repositories = [
   ViewRepository,
   VersionHistoryRepository,
   VideoStreamRepository,
+  ViewerRepository,
   WebsocketRepository,
   WorkflowRepository,
 ];

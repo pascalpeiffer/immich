@@ -95,3 +95,10 @@
 1787148183729-ClusterGroups
 1787148183730-DeleteMismatchedMemoryAssets
 1789419229196-ConvertUserOAuthIdEmptyStringToNull
+1789781088698-AddViewerTable
+1790073890748-AddViewerTables
+1790169968918-AddUniqueViewerAsset
+1790571866856-ViewerTablesTriggerUpdate
+1790572197263-ViewerTablesTriggerUpdate2
+1791150665725-ViewerTablesEditDeleteColumAdd
+1791150881584-ViewerTablesUpdateIdColumAdd

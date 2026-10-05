@@ -197,6 +197,11 @@ export enum Permission {
   LibraryDelete = 'library.delete',
   LibraryStatistics = 'library.statistics',
 
+  ViewerCreate = 'viewer.create',
+  ViewerRead = 'viewer.read',
+  ViewerUpdate = 'viewer.update',
+  ViewerDelete = 'viewer.delete',
+
   TimelineRead = 'timeline.read',
   TimelineDownload = 'timeline.download',
 
@@ -1191,6 +1196,17 @@ export const AssetVisibilitySchema = z
   .describe('Asset visibility')
   .meta({ id: 'AssetVisibility' });
 
+export enum ViewerAlbumAccess {
+  None = 'none',
+  Read = 'read',
+  Write = 'write',
+}
+
+export const ViewerAlbumAccessSchema = z
+  .enum(ViewerAlbumAccess)
+  .describe('Viewer album access')
+  .meta({ id: 'ViewerAlbumAccess' });
+
 export enum ReleaseChannel {
   Stable = 'stable',
   ReleaseCandidate = 'releaseCandidate',
@@ -1253,6 +1269,7 @@ export enum ApiTag {
   UsersAdmin = 'Users (admin)',
   Users = 'Users',
   Views = 'Views',
+  Viewer = 'Viewer',
   Workflows = 'Workflows',
 }
 

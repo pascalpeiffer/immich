@@ -59,6 +59,7 @@ import { UserRepository } from 'src/repositories/user.repository.js';
 import { VersionHistoryRepository } from 'src/repositories/version-history.repository.js';
 import { VideoStreamRepository } from 'src/repositories/video-stream.repository.js';
 import { ViewRepository } from 'src/repositories/view-repository.js';
+import { ViewerRepository } from 'src/repositories/viewer.repository.js';
 import { WebsocketRepository } from 'src/repositories/websocket.repository.js';
 import { WorkflowRepository } from 'src/repositories/workflow.repository.js';
 import { UserTable } from 'src/schema/tables/user.table.js';
@@ -181,6 +182,7 @@ export class BaseService {
     protected versionRepository: VersionHistoryRepository,
     protected videoStreamRepository: VideoStreamRepository,
     protected viewRepository: ViewRepository,
+    protected viewerRepository: ViewerRepository,
     protected websocketRepository: WebsocketRepository,
     protected workflowRepository: WorkflowRepository,
   ) {
@@ -252,6 +254,7 @@ export class BaseService {
       ctx.versionRepository,
       ctx.videoStreamRepository,
       ctx.viewRepository,
+      ctx.viewerRepository,
       ctx.websocketRepository,
       ctx.workflowRepository,
     );

@@ -107,6 +107,16 @@ export class MapRepository {
           expression.push(eb('ownerId', 'in', ownerIds));
         }
 
+        expression.push(
+          eb.exists((eb2) =>
+            eb2
+              .selectFrom('viewer')
+              .select(eb2.lit(1).as('exists'))
+              .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+              .where('viewer.userId', '=', authUserId),
+          ),
+        );
+
         if (albumIds.length > 0) {
           expression.push(
             eb.exists((eb) =>

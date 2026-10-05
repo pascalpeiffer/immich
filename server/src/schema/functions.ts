@@ -49,6 +49,44 @@ export const updated_at = registerFunction({
     END;`,
 });
 
+export const bump_from_viewer_assets = registerFunction({
+  name: 'bump_from_viewer_assets',
+  returnType: 'TRIGGER',
+  language: 'PLPGSQL',
+  body: `
+    DECLARE
+      ass uuid;
+    BEGIN
+      IF TG_OP = 'DELETE' THEN
+        ass := old."assetId";
+      ELSE
+        ass := new."assetId";
+      END IF;
+
+      UPDATE asset SET "updatedAt" = clock_timestamp() WHERE "id" = ass;
+      RETURN NULL;
+    END;`,
+});
+
+export const bump_library_assets = registerFunction({
+  name: 'bump_library_assets',
+  returnType: 'TRIGGER',
+  language: 'PLPGSQL',
+  body: `
+    DECLARE
+      lib uuid;
+    BEGIN
+      IF TG_OP = 'DELETE' THEN
+        lib := old."libraryId";
+      ELSE
+        lib := new."libraryId";
+      END IF;
+
+      UPDATE asset SET "updatedAt" = clock_timestamp() WHERE "libraryId" = lib;
+      RETURN NULL;
+    END;`,
+});
+
 export const f_concat_ws = registerFunction({
   name: 'f_concat_ws',
   arguments: ['text', 'text[]'],

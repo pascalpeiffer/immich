@@ -43,6 +43,7 @@ import { UserAdminController } from 'src/controllers/user-admin.controller.js';
 import { UserController } from 'src/controllers/user.controller.js';
 import { VideoStreamController } from 'src/controllers/video-stream.controller.js';
 import { ViewController } from 'src/controllers/view.controller.js';
+import { ViewerController } from 'src/controllers/viewer.controller.js';
 import { WorkflowController } from 'src/controllers/workflow.controller.js';
 
 export const controllers = [
@@ -91,5 +92,6 @@ export const controllers = [
   UserController,
   VideoStreamController,
   ViewController,
+  ViewerController,
   WorkflowController,
 ];

@@ -134,6 +134,35 @@ export class JobService extends BaseService {
         const edits = await this.assetEditRepository.getWithSyncInfo(item.data.id);
 
         if (asset) {
+          await this.viewerRepository.getByLibraryId(asset.libraryId!).then((viewers) => {
+            for (const viewer of viewers) {
+              this.websocketRepository.clientSend('AssetEditReadyV2', viewer.userId, {
+                asset: {
+                  id: asset.id,
+                  ownerId: viewer.userId,
+                  originalFileName: asset.originalFileName,
+                  thumbhash: asset.thumbhash ? hexOrBufferToBase64(asset.thumbhash) : null,
+                  checksum: hexOrBufferToBase64(asset.checksum),
+                  fileCreatedAt: asset.fileCreatedAt,
+                  fileModifiedAt: asset.fileModifiedAt,
+                  createdAt: asset.createdAt,
+                  localDateTime: asset.localDateTime,
+                  duration: asset.duration,
+                  type: asset.type,
+                  deletedAt: asset.deletedAt,
+                  isFavorite: asset.isFavorite,
+                  visibility: asset.visibility,
+                  livePhotoVideoId: asset.livePhotoVideoId,
+                  stackId: asset.stackId,
+                  libraryId: asset.libraryId,
+                  width: asset.width,
+                  height: asset.height,
+                  isEdited: asset.isEdited,
+                },
+                edit: edits,
+              });
+            }
+          });
           this.websocketRepository.clientSend('AssetEditReadyV2', asset.ownerId, {
             asset: {
               id: asset.id,
