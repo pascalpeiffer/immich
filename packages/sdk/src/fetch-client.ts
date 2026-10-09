@@ -3133,6 +3133,38 @@ export type CreateProfileImageResponseDto = {
     /** User ID */
     userId: string;
 };
+export type ViewerResponseDto = {
+    /** Album access level */
+    albumAccess: ViewerAlbumAccess;
+    /** Creation date */
+    createdAt: string;
+    /** Delete permission */
+    "delete": boolean;
+    /** Edit permission */
+    edit: boolean;
+    /** Viewer ID */
+    id: string;
+    /** Library ID */
+    libraryId: string;
+    /** Last update date */
+    updatedAt: string;
+    /** User ID */
+    userId: string;
+};
+export type ViewerCreateDto = {
+    /** Library ID */
+    libraryId: string;
+    /** User ID */
+    userId: string;
+};
+export type ViewerUpdateDto = {
+    /** Album access level */
+    albumAccess?: ViewerAlbumAccess;
+    /** Delete permission */
+    "delete"?: boolean;
+    /** Edit permission */
+    edit?: boolean;
+};
 export type WorkflowStepDto = {
     /** Step configuration */
     config: {
@@ -7664,6 +7696,72 @@ export function getUniqueOriginalPaths(opts?: Oazapfts.RequestOpts) {
     }));
 }
 /**
+ * Get all viewers
+ */
+export function getViewers(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: ViewerResponseDto[];
+    }>("/viewer", {
+        ...opts
+    }));
+}
+/**
+ * Create an viewer
+ */
+export function createViewer({ viewerCreateDto }: {
+    viewerCreateDto: ViewerCreateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: ViewerResponseDto;
+    }>("/viewer", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: viewerCreateDto
+    })));
+}
+/**
+ * Delete an viewer
+ */
+export function deleteViewer({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText(`/viewer/${encodeURIComponent(id)}`, {
+        ...opts,
+        method: "DELETE"
+    }));
+}
+/**
+ * Get all viewers of a given library id
+ */
+export function getViewersByLibraryId({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: ViewerResponseDto[];
+    }>(`/viewer/${encodeURIComponent(id)}`, {
+        ...opts
+    }));
+}
+/**
+ * Update a viewer
+ */
+export function updateViewer({ id, viewerUpdateDto }: {
+    id: string;
+    viewerUpdateDto: ViewerUpdateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: ViewerResponseDto;
+    }>(`/viewer/${encodeURIComponent(id)}`, oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: viewerUpdateDto
+    })));
+}
+/**
  * List all workflows
  */
 export function searchWorkflows({ description, enabled, id, logging, name, trigger }: {
@@ -8015,6 +8113,10 @@ export enum Permission {
     LibraryUpdate = "library.update",
     LibraryDelete = "library.delete",
     LibraryStatistics = "library.statistics",
+    ViewerCreate = "viewer.create",
+    ViewerRead = "viewer.read",
+    ViewerUpdate = "viewer.update",
+    ViewerDelete = "viewer.delete",
     TimelineRead = "timeline.read",
     TimelineDownload = "timeline.download",
     Maintenance = "maintenance",
@@ -8428,6 +8530,11 @@ export enum SyncRequestType {
 export enum AssetOrderBy {
     TakenAt = "takenAt",
     CreatedAt = "createdAt"
+}
+export enum ViewerAlbumAccess {
+    None = "none",
+    Read = "read",
+    Write = "write"
 }
 export enum WorkflowResult {
     Completed = "completed",

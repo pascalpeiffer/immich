@@ -92,6 +92,8 @@ import {
   VideoStreamSessionTable,
   VideoStreamVariantTable,
 } from 'src/schema/tables/video-stream.table.js';
+import { ViewerAssetTable } from 'src/schema/tables/viewer-asset.table.js';
+import { ViewerTable } from 'src/schema/tables/viewer.table.js';
 import { WorkflowLogTable } from 'src/schema/tables/workflow-log.table.js';
 import { WorkflowStepTable } from 'src/schema/tables/workflow-step.table.js';
 import { WorkflowTable } from 'src/schema/tables/workflow.table.js';
@@ -237,6 +239,9 @@ export interface DB {
   integrity_report: IntegrityReportTable;
 
   library: LibraryTable;
+
+  viewer: ViewerTable;
+  viewer_asset: ViewerAssetTable;
 
   memory: MemoryTable;
   memory_audit: MemoryAuditTable;

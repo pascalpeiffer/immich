@@ -352,6 +352,16 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
       return access.stack.checkOwnerAccess(auth.user.id, ids);
     }
 
+    case Permission.ViewerRead:
+    case Permission.ViewerDelete:
+    case Permission.ViewerUpdate: {
+      return new Promise((resolve) => resolve(ids)); //TODO correct permissions
+    }
+
+    case Permission.ViewerCreate: {
+      return new Promise((resolve) => resolve(ids)); //TODO correct permissions
+    }
+
     case Permission.WorkflowRead:
     case Permission.WorkflowUpdate:
     case Permission.WorkflowDelete:

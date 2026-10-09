@@ -13,6 +13,7 @@ import {
   SourceType,
   UserAvatarColor,
   UserStatus,
+  ViewerAlbumAccess,
 } from 'src/enum.js';
 import { AlbumTable } from 'src/schema/tables/album.table.js';
 import { AssetExifTable } from 'src/schema/tables/asset-exif.table.js';
@@ -52,6 +53,17 @@ export type Library = {
   deletedAt: Date | null;
   refreshedAt: Date | null;
   assets?: MapAsset[];
+};
+
+export type Viewer = {
+  id: string;
+  userId: string;
+  libraryId: string;
+  albumAccess: ViewerAlbumAccess;
+  edit: boolean;
+  delete: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export type AuthApiKey = {
