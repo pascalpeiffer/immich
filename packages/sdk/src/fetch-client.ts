@@ -3134,8 +3134,6 @@ export type CreateProfileImageResponseDto = {
     userId: string;
 };
 export type ViewerResponseDto = {
-    /** Album access level */
-    albumAccess: ViewerAlbumAccess;
     /** Creation date */
     createdAt: string;
     /** Delete permission */
@@ -3158,8 +3156,6 @@ export type ViewerCreateDto = {
     userId: string;
 };
 export type ViewerUpdateDto = {
-    /** Album access level */
-    albumAccess?: ViewerAlbumAccess;
     /** Delete permission */
     "delete"?: boolean;
     /** Edit permission */
@@ -8530,11 +8526,6 @@ export enum SyncRequestType {
 export enum AssetOrderBy {
     TakenAt = "takenAt",
     CreatedAt = "createdAt"
-}
-export enum ViewerAlbumAccess {
-    None = "none",
-    Read = "read",
-    Write = "write"
 }
 export enum WorkflowResult {
     Completed = "completed",
