@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { isUndefined, omitBy } from 'lodash-es';
+import { drop, isUndefined, omitBy } from 'lodash-es';
 import { DateTime, Duration } from 'luxon';
 import type { AssetFile } from 'src/database.js';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
@@ -134,6 +134,12 @@ export class AssetService extends BaseService {
       const viewer = await this.viewerRepository.getByLibraryAndUserId(viewerAsset.libraryId!, auth.user.id);
       const vis = dto.visibility;
       const fav = dto.isFavorite;
+      const description = dto.description;
+      const dateTimeOriginal = dto.dateTimeOriginal;
+      const lat = dto.latitude;
+      const long = dto.longitude;
+      const rating = dto.rating;
+      const livePhotoVideoId = dto.livePhotoVideoId;
 
       if (vis !== undefined) {
         await this.viewerRepository.setVisibility(viewer!.id, viewerAsset.id, vis);
@@ -143,9 +149,19 @@ export class AssetService extends BaseService {
         await this.viewerRepository.setFavorite(viewer!.id, viewerAsset.id, fav);
       }
 
-      //TODO enable exif / the rest  update?
+      if (
+        description === undefined &&
+        dateTimeOriginal === undefined &&
+        lat === undefined &&
+        long === undefined &&
+        rating === undefined &&
+        livePhotoVideoId === undefined
+      ) {
+        return this.get(auth, id) as Promise<AssetResponseDto>;
+      }
 
-      return this.get(auth, id) as Promise<AssetResponseDto>;
+      dto.isFavorite = undefined;
+      dto.visibility = undefined;
     }
 
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id] });

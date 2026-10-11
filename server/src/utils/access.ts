@@ -1,5 +1,4 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
-import { isVAT } from 'validator';
 import { AuthSharedLink } from 'src/database.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { AlbumUserRole, Permission } from 'src/enum.js';
