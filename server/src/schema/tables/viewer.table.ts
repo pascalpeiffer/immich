@@ -16,6 +16,7 @@ import { UpdateIdColumn, UpdatedAtTrigger } from 'src/decorators.js';
 import { ViewerAlbumAccess } from 'src/enum.js';
 import { viewer_album_access_enum } from 'src/schema/enums.js';
 import { bump_library_assets } from 'src/schema/functions.js';
+import { AssetTable } from 'src/schema/tables/asset.table.js';
 import { LibraryTable } from 'src/schema/tables/library.table.js';
 import { UserTable } from 'src/schema/tables/user.table.js';
 
@@ -34,8 +35,13 @@ export class ViewerTable {
   @ForeignKeyColumn(() => LibraryTable, { onDelete: 'CASCADE', onUpdate: 'CASCADE', nullable: false })
   libraryId!: string;
 
-  @Column({ enum: viewer_album_access_enum, default: ViewerAlbumAccess.None })
-  albumAccess!: Generated<ViewerAlbumAccess>;
+  @ForeignKeyColumn(() => AssetTable, {
+    nullable: true,
+    onDelete: 'SET NULL',
+    onUpdate: 'CASCADE',
+    comment: 'Asset ID to be used as thumbnail',
+  })
+  albumThumbnailAssetId!: string | null;
 
   @Column({ type: 'boolean', default: false })
   edit!: Generated<boolean>;

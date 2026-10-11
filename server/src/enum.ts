@@ -1202,11 +1202,6 @@ export enum ViewerAlbumAccess {
   Write = 'write',
 }
 
-export const ViewerAlbumAccessSchema = z
-  .enum(ViewerAlbumAccess)
-  .describe('Viewer album access')
-  .meta({ id: 'ViewerAlbumAccess' });
-
 export enum ReleaseChannel {
   Stable = 'stable',
   ReleaseCandidate = 'releaseCandidate',

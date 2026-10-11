@@ -59,7 +59,7 @@ export type Viewer = {
   id: string;
   userId: string;
   libraryId: string;
-  albumAccess: ViewerAlbumAccess;
+  albumThumbnailAssetId: string | null;
   edit: boolean;
   delete: boolean;
   createdAt: Date;

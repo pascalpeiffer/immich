@@ -40,7 +40,7 @@ export class AlbumService extends BaseService {
         description: null,
         createdAt: lib!.createdAt,
         updatedAt: lib!.updatedAt,
-        albumThumbnailAssetId: thumbId === undefined ? null : thumbId,
+        albumThumbnailAssetId: v.albumThumbnailAssetId ?? thumbId ?? null,
         albumUsers: [
           {
             role: AlbumUserRole.Viewer,
@@ -118,7 +118,7 @@ export class AlbumService extends BaseService {
 
     const viewerAlb = await this.getViewerAlbumAddition(ownerId);
 
-    if (rest.isShared === undefined) {
+    if (rest.isOwned === undefined) {
       albums = [...albums, ...viewerAlb];
     }
 
@@ -237,6 +237,19 @@ export class AlbumService extends BaseService {
   }
 
   async update(auth: AuthDto, id: string, dto: UpdateAlbumDto): Promise<AlbumResponseDto> {
+    const viewerAlb = await this.getViewerAlbumAddition(auth.user.id);
+
+    for (const v of viewerAlb) {
+      if (v.id !== id) continue;
+      if (dto.albumThumbnailAssetId) {
+        await this.requireAccess({ auth, permission: Permission.AssetRead, ids: [dto.albumThumbnailAssetId!] });
+        const viewer = await this.viewerRepository.getByLibraryAndUserId(v.id, auth.user.id);
+        await this.viewerRepository.setAlbumThumb(viewer!.id, auth.user.id, v.id, dto.albumThumbnailAssetId!);
+      }
+
+      return this.get(auth, id);
+    }
+
     await this.requireAccess({ auth, permission: Permission.AlbumUpdate, ids: [id] });
 
     const album = await this.findOrFail(id, auth.user.id, { withAssets: true });

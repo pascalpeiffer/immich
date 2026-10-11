@@ -33318,15 +33318,6 @@
         ],
         "type": "string"
       },
-      "ViewerAlbumAccess": {
-        "description": "Viewer album access",
-        "enum": [
-          "none",
-          "read",
-          "write"
-        ],
-        "type": "string"
-      },
       "ViewerCreateDto": {
         "properties": {
           "libraryId": {
@@ -33350,10 +33341,6 @@
       },
       "ViewerResponseDto": {
         "properties": {
-          "albumAccess": {
-            "$ref": "#/components/schemas/ViewerAlbumAccess",
-            "description": "Album access level"
-          },
           "createdAt": {
             "description": "Creation date",
             "example": "2024-01-01T00:00:00.000Z",
@@ -33396,7 +33383,6 @@
           }
         },
         "required": [
-          "albumAccess",
           "createdAt",
           "delete",
           "edit",
@@ -33409,10 +33395,6 @@
       },
       "ViewerUpdateDto": {
         "properties": {
-          "albumAccess": {
-            "$ref": "#/components/schemas/ViewerAlbumAccess",
-            "description": "Album access level"
-          },
           "delete": {
             "description": "Delete permission",
             "type": "boolean"

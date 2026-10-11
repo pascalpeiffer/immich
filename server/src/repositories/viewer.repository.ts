@@ -19,22 +19,18 @@ export class ViewerRepository {
     return this.db.selectFrom('viewer_asset').selectAll().execute();
   }
 
-  @GenerateSql({ params: [{ libraryId: DummyValue.UUID }] })
   async getById(id: string) {
     return this.db.selectFrom('viewer').selectAll().where('id', '=', asUuid(id)).executeTakeFirst();
   }
 
-  @GenerateSql({ params: [{ libraryId: DummyValue.UUID }] })
   async getByLibraryId(libraryId: string) {
     return this.db.selectFrom('viewer').selectAll().where('libraryId', '=', asUuid(libraryId)).execute();
   }
 
-  @GenerateSql({ params: [{ libraryId: DummyValue.UUID }] })
   async getByUserId(userId: string) {
     return this.db.selectFrom('viewer').selectAll().where('userId', '=', asUuid(userId)).execute();
   }
 
-  @GenerateSql({ params: [{ libraryId: DummyValue.UUID, userId: DummyValue.UUID }] })
   async getByLibraryAndUserId(libraryId: string, userId: string) {
     return this.db
       .selectFrom('viewer')
@@ -44,7 +40,6 @@ export class ViewerRepository {
       .executeTakeFirst();
   }
 
-  @GenerateSql({ params: [{ libraryId: DummyValue.UUID, userId: DummyValue.UUID }] })
   async getFavorite(viewerId: string, assetId: string) {
     return this.db
       .selectFrom('viewer_asset')
@@ -54,7 +49,6 @@ export class ViewerRepository {
       .executeTakeFirst();
   }
 
-  @GenerateSql({ params: [{ libraryId: DummyValue.UUID, userId: DummyValue.UUID }] })
   async getVisibility(viewerId: string, assetId: string) {
     return this.db
       .selectFrom('viewer_asset')
@@ -64,12 +58,19 @@ export class ViewerRepository {
       .executeTakeFirst();
   }
 
-  @GenerateSql({ params: [{ libraryId: DummyValue.UUID, userId: DummyValue.UUID }] })
   async setFavorite(viewerId: string, assetId: string, isFavorite: boolean) {
     return this.db
       .insertInto('viewer_asset')
       .values({ viewerId, assetId, isFavorite })
       .onConflict((oc) => oc.columns(['viewerId', 'assetId']).doUpdateSet({ isFavorite }))
+      .executeTakeFirst();
+  }
+
+  async setAlbumThumb(id: string, userId: string, libraryId: string, albumThumbnailAssetId: string) {
+    return this.db
+      .insertInto('viewer')
+      .values({ id, userId, libraryId, albumThumbnailAssetId })
+      .onConflict((oc) => oc.columns(['id']).doUpdateSet({ albumThumbnailAssetId }))
       .executeTakeFirst();
   }
 
