@@ -101,6 +101,7 @@ interface AssetBuilderOptions {
 export interface TimeBucketOptions extends AssetBuilderOptions {
   order?: AssetOrder;
   orderBy?: AssetOrderBy;
+  libraryId?: string;
 }
 
 export interface TimeBucketItem {
@@ -806,6 +807,7 @@ export class AssetRepository {
           )
           .select(truncatedDate<Date>(options.orderBy).as('timeBucket'))
           .$if(!!options.isTrashed, (qb) => qb.where('asset.status', '!=', AssetStatus.Deleted))
+          .$if(options.libraryId !== undefined, (qb) => qb.where('asset.libraryId', '=', options.libraryId!))
           .$if(options.isTrashed === true, (qb) =>
             qb.where((eb) =>
               eb.and([
@@ -925,6 +927,7 @@ export class AssetRepository {
                 .as('viewer_override'),
             (join) => join.onTrue(),
           )
+          .$if(options.libraryId !== undefined, (qb) => qb.where('asset.libraryId', '=', options.libraryId!))
           .select((eb) => [
             'asset.duration',
             'asset.id',
@@ -1086,6 +1089,22 @@ export class AssetRepository {
       .select(sql<string>`to_json(agg)::text`.as('assets'));
 
     return query.executeTakeFirstOrThrow();
+  }
+
+  @GenerateSql({ params: [[DummyValue.UUID]] })
+  async getLatestImageIdByLibraryId(libraryId: string): Promise<string | undefined> {
+    return await this.db
+      .selectFrom('asset')
+      .select('asset.id')
+      .distinctOn('asset.libraryId')
+      .where('asset.libraryId', '=', libraryId)
+      .where('asset.type', '=', AssetType.Image)
+      .where('asset.deletedAt', 'is', null)
+      .where('asset.visibility', '=', AssetVisibility.Timeline)
+      .orderBy('asset.libraryId')
+      .orderBy('asset.fileCreatedAt', 'desc')
+      .executeTakeFirst()
+      .then((e) => e?.id);
   }
 
   @GenerateSql({ params: [DummyValue.UUID, { minAssetsPerField: 5, maxFields: 12 }] })

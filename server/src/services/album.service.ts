@@ -7,6 +7,7 @@ import {
   AlbumsAddAssetsResponseDto,
   CreateAlbumDto,
   GetAlbumsDto,
+  MapAlbumDto,
   UpdateAlbumDto,
   UpdateAlbumUserDto,
   mapAlbum,
@@ -14,7 +15,8 @@ import {
 import { BulkIdErrorReason, BulkIdResponseDto, BulkIdsDto } from 'src/dtos/asset-ids.response.dto.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { MapMarkerResponseDto } from 'src/dtos/map.dto.js';
-import { AlbumUserRole, Permission } from 'src/enum.js';
+import { mapUser } from 'src/dtos/user.dto.js';
+import { AlbumUserRole, AssetOrder, Permission } from 'src/enum.js';
 import { AlbumAssetCount, AlbumInfoOptions } from 'src/repositories/album.repository.js';
 import { BaseService } from 'src/services/base.service.js';
 import { addAssets, removeAssets } from 'src/utils/asset.util.js';
@@ -24,6 +26,35 @@ import { getPreferences } from 'src/utils/preferences.js';
 
 @Injectable()
 export class AlbumService extends BaseService {
+  async getViewerAlbumAddition(ownerId: string): Promise<MapAlbumDto[]> {
+    const albums: MapAlbumDto[] = [];
+
+    const viewers = await this.viewerRepository.getByUserId(ownerId);
+    for (const v of viewers) {
+      const lib = await this.libraryRepository.get(v.libraryId);
+      const user = mapUser(await findOrFail(() => this.userRepository.get(ownerId, { withDeleted: false }), 'User'));
+      const thumbId = await this.assetRepository.getLatestImageIdByLibraryId(lib!.id);
+      albums.push({
+        albumName: lib!.name,
+        id: v.libraryId, //TODO: WHICH ID TO USE
+        description: null,
+        createdAt: lib!.createdAt,
+        updatedAt: lib!.updatedAt,
+        albumThumbnailAssetId: thumbId === undefined ? null : thumbId,
+        albumUsers: [
+          {
+            role: AlbumUserRole.Viewer,
+            user,
+          },
+        ],
+        isActivityEnabled: false,
+        order: AssetOrder.Desc,
+      });
+    }
+
+    return albums;
+  }
+
   async getStatistics(auth: AuthDto): Promise<AlbumStatisticsResponseDto> {
     const [owned, shared, notShared] = await Promise.all([
       this.albumRepository.getAll(auth.user.id, { isOwned: true }),
@@ -38,12 +69,58 @@ export class AlbumService extends BaseService {
     };
   }
 
+  async getMetadataForIds(ids: string[]): Promise<AlbumAssetCount[]> {
+    const libraries = await this.libraryRepository.getAll();
+    const libraryIds = new Set(libraries.map((library) => library.id));
+
+    const albumIds = ids.filter((id) => !libraryIds.has(id));
+    const libraryIdsRequested = [...new Set(ids.filter((id) => libraryIds.has(id)))];
+
+    // Fast path: no library ids, behave exactly as before
+    if (libraryIdsRequested.length === 0) {
+      return this.albumRepository.getMetadataForIds(ids);
+    }
+
+    const [albumMetadata, libraryMetadata] = await Promise.all([
+      albumIds.length > 0 ? this.albumRepository.getMetadataForIds(albumIds) : [],
+      Promise.all(
+        libraryIdsRequested.map(async (libraryId): Promise<AlbumAssetCount> => {
+          const stats = await this.libraryRepository.getStatistics(libraryId);
+          return {
+            albumId: libraryId,
+            assetCount: stats!.total,
+            startDate: null,
+            endDate: null,
+            lastModifiedAssetTimestamp: libraries.find((l) => l.id === libraryId)!.updatedAt,
+          };
+        }),
+      ),
+    ]);
+
+    const resultById = new Map<string, AlbumAssetCount>();
+    for (const item of [...albumMetadata, ...libraryMetadata]) {
+      resultById.set(item.albumId, item);
+    }
+
+    // Preserve input order; drop ids with no result (same as the repository would)
+    return ids.flatMap((id) => {
+      const item = resultById.get(id);
+      return item ? [item] : [];
+    });
+  }
+
   async getAll({ user: { id: ownerId } }: AuthDto, { assetId, ...rest }: GetAlbumsDto): Promise<AlbumResponseDto[]> {
     await this.albumRepository.updateThumbnails();
 
-    const albums = assetId
+    let albums = assetId
       ? await this.albumRepository.getByAssetId(ownerId, assetId)
       : await this.albumRepository.getAll(ownerId, rest);
+
+    const viewerAlb = await this.getViewerAlbumAddition(ownerId);
+
+    if (rest.isShared === undefined) {
+      albums = [...albums, ...viewerAlb];
+    }
 
     if (albums.length === 0) {
       return [];
@@ -51,13 +128,13 @@ export class AlbumService extends BaseService {
 
     // Get asset count for each album. Then map the result to an object:
     // { [albumId]: assetCount }
-    const results = await this.albumRepository.getMetadataForIds(albums.map((album) => album.id));
+    const results = await this.getMetadataForIds(albums.map((album) => album.id));
     const albumMetadata: Record<string, AlbumAssetCount> = {};
     for (const metadata of results) {
       albumMetadata[metadata.albumId] = metadata;
     }
 
-    return albums.map((album) => ({
+    const alb = albums.map((album) => ({
       ...mapAlbum(album),
       sharedLinks: undefined,
       startDate: asDateTimeString(albumMetadata[album.id]?.startDate ?? undefined),
@@ -66,13 +143,28 @@ export class AlbumService extends BaseService {
       // lastModifiedAssetTimestamp is only used in mobile app, please remove if not need
       lastModifiedAssetTimestamp: asDateTimeString(albumMetadata[album.id]?.lastModifiedAssetTimestamp ?? undefined),
     }));
+
+    return alb;
   }
 
   async get(auth: AuthDto, id: string): Promise<AlbumResponseDto> {
-    await this.requireAccess({ auth, permission: Permission.AlbumRead, ids: [id] });
-    await this.albumRepository.updateThumbnails();
-    const album = await this.findOrFail(id, auth.user.id, { withAssets: false });
-    const [albumMetadataForIds] = await this.albumRepository.getMetadataForIds([album.id]);
+    const viewerAlb = await this.getViewerAlbumAddition(auth.user.id);
+
+    let album = null;
+
+    for (const v of viewerAlb) {
+      if (v.id !== id) continue;
+      album = v;
+    }
+
+    if (album === null) {
+      await this.requireAccess({ auth, permission: Permission.AlbumRead, ids: [id] });
+      await this.albumRepository.updateThumbnails();
+
+      album = await this.findOrFail(id, auth.user.id, { withAssets: false });
+    }
+
+    const [albumMetadataForIds] = await this.getMetadataForIds([album.id]);
 
     const hasSharedUsers = album.albumUsers && album.albumUsers.length > 1;
     const hasSharedLink = album.sharedLinks && album.sharedLinks.length > 0;
@@ -89,6 +181,13 @@ export class AlbumService extends BaseService {
   }
 
   async getMapMarkers(auth: AuthDto, id: string): Promise<MapMarkerResponseDto[]> {
+    const viewerAlb = await this.getViewerAlbumAddition(auth.user.id);
+
+    for (const v of viewerAlb) {
+      if (v.id !== id) continue;
+      return await this.mapRepository.getMapMarkers(auth.user.id, [auth.user.id], [], {});
+    }
+
     await this.requireAccess({ auth, permission: Permission.AlbumRead, ids: [id] });
 
     if (auth.sharedLink && !auth.sharedLink.showExif) {

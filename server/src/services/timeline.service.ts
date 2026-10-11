@@ -10,22 +10,44 @@ import { getMyPartnerIds } from 'src/utils/asset.util.js';
 @Injectable()
 export class TimelineService extends BaseService {
   async getTimeBuckets(auth: AuthDto, dto: TimeBucketDto): Promise<TimeBucketsResponseDto[]> {
+    let libraryId;
+    if (dto.albumId !== undefined) {
+      const library = await this.libraryRepository.get(dto.albumId!);
+      if (library !== undefined) {
+        dto.albumId = undefined;
+        libraryId = library.id;
+      }
+    }
+
     await this.timeBucketChecks(auth, dto);
-    const timeBucketOptions = await this.buildTimeBucketOptions(auth, dto);
+    const timeBucketOptions = await this.buildTimeBucketOptions(auth, dto, libraryId);
     return await this.assetRepository.getTimeBuckets(timeBucketOptions, auth);
   }
 
   // pre-jsonified response
   async getTimeBucket(auth: AuthDto, dto: TimeBucketAssetDto): Promise<string> {
+    let libraryId;
+    if (dto.albumId !== undefined) {
+      const library = await this.libraryRepository.get(dto.albumId!);
+      if (library !== undefined) {
+        dto.albumId = undefined;
+        libraryId = library.id;
+      }
+    }
+
     await this.timeBucketChecks(auth, dto);
-    const timeBucketOptions = await this.buildTimeBucketOptions(auth, { ...dto });
+    const timeBucketOptions = await this.buildTimeBucketOptions(auth, { ...dto }, libraryId);
 
     // TODO: use id cursor for pagination
     const bucket = await this.assetRepository.getTimeBucket(dto.timeBucket, timeBucketOptions, auth);
     return bucket.assets;
   }
 
-  private async buildTimeBucketOptions(auth: AuthDto, dto: TimeBucketDto): Promise<TimeBucketOptions> {
+  private async buildTimeBucketOptions(
+    auth: AuthDto,
+    dto: TimeBucketDto,
+    libraryId?: string,
+  ): Promise<TimeBucketOptions> {
     const { userId, ...options } = dto;
     let userIds: string[] | undefined;
 
@@ -41,7 +63,7 @@ export class TimelineService extends BaseService {
       }
     }
 
-    return { ...options, userIds };
+    return { ...options, userIds, libraryId };
   }
 
   private async timeBucketChecks(auth: AuthDto, dto: TimeBucketDto) {
