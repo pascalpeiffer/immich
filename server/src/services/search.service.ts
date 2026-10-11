@@ -183,7 +183,7 @@ export class SearchService extends BaseService {
     const embedding = await this.resolveEmbedding(auth, dto, machineLearning);
     const page = dto.page ?? 1;
     const size = dto.size;
-    const { hasNextPage, items } = await this.searchRepository.searchSmart(
+    const result = await this.searchRepository.searchSmart(
       { page, size },
       {
         ...dto,
@@ -193,6 +193,15 @@ export class SearchService extends BaseService {
         visibility: dto.visibility ?? (auth.session?.hasElevatedPermission ? undefined : 'not-locked'),
       },
     );
+    const hasNextPage = result.hasNextPage;
+    let items = result.items;
+
+    const ownedIds = new Set(items.filter((a) => a.ownerId === auth.user.id).map((a) => a.id));
+    const idsToCheck = items.filter((a) => !ownedIds.has(a.id)).map((a) => a.id);
+
+    const viewableIds = await this.accessRepository.asset.checkViewerAccess(auth.user.id, new Set(idsToCheck));
+
+    items = items.filter((a) => ownedIds.has(a.id) || viewableIds.has(a.id));
 
     return this.mapResponse(items, { auth }, { nextPage: hasNextPage ? (page + 1).toString() : null });
   }

@@ -1,4 +1,5 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { isVAT } from 'validator';
 import { AuthSharedLink } from 'src/database.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { AlbumUserRole, Permission } from 'src/enum.js';
@@ -100,6 +101,8 @@ const checkSharedLinkAccess = async (
 const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRequest): Promise<Set<string>> => {
   const { auth, permission, ids } = request;
 
+  //return ids;
+
   switch (permission) {
     // uses album id
     case Permission.ActivityCreate: {
@@ -117,7 +120,11 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
       const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
       const isAlbum = await access.asset.checkAlbumAccess(auth.user.id, setDifference(ids, isOwner));
       const isPartner = await access.asset.checkPartnerAccess(auth.user.id, setDifference(ids, isOwner, isAlbum));
-      return setUnion(isOwner, isAlbum, isPartner);
+      const isViewer = await access.asset.checkViewerAccess(
+        auth.user.id,
+        setDifference(ids, isOwner, isAlbum, isPartner),
+      );
+      return setUnion(isOwner, isAlbum, isPartner, isViewer);
     }
 
     case Permission.AssetShare: {
@@ -134,22 +141,34 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
       const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
       const isAlbum = await access.asset.checkAlbumAccess(auth.user.id, setDifference(ids, isOwner));
       const isPartner = await access.asset.checkPartnerAccess(auth.user.id, setDifference(ids, isOwner, isAlbum));
-      return setUnion(isOwner, isAlbum, isPartner);
+      const isViewer = await access.asset.checkViewerAccess(
+        auth.user.id,
+        setDifference(ids, isOwner, isAlbum, isPartner),
+      );
+      return setUnion(isOwner, isAlbum, isPartner, isViewer);
     }
 
     case Permission.AssetDownload: {
       const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
       const isAlbum = await access.asset.checkAlbumAccess(auth.user.id, setDifference(ids, isOwner));
       const isPartner = await access.asset.checkPartnerAccess(auth.user.id, setDifference(ids, isOwner, isAlbum));
-      return setUnion(isOwner, isAlbum, isPartner);
+      const isViewer = await access.asset.checkViewerAccess(
+        auth.user.id,
+        setDifference(ids, isOwner, isAlbum, isPartner),
+      );
+      return setUnion(isOwner, isAlbum, isPartner, isViewer);
     }
 
     case Permission.AssetUpdate: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isViewer = await access.asset.checkViewerAccess(auth.user.id, setDifference(ids, isOwner), { edit: true });
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.AssetDelete: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isViewer = await access.asset.checkViewerAccess(auth.user.id, setDifference(ids, isOwner), { del: true });
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.AssetCopy: {
@@ -157,20 +176,33 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.AssetEditGet: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isViewer = await access.asset.checkViewerAccess(auth.user.id, setDifference(ids, isOwner));
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.AssetEditCreate: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isViewer = await access.asset.checkViewerAccess(auth.user.id, setDifference(ids, isOwner), { edit: true });
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.AssetEditDelete: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isViewer = await access.asset.checkViewerAccess(auth.user.id, setDifference(ids, isOwner), { edit: true });
+      return setUnion(isOwner, isViewer);
     }
 
-    case Permission.AssetFileRead:
+    case Permission.AssetFileRead: {
+      const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isViewer = await access.asset.checkViewerAccess(auth.user.id, setDifference(ids, isOwner));
+      return setUnion(isOwner, isViewer);
+    }
+
     case Permission.AssetFileDelete: {
-      return await access.assetFile.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isOwner = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      const isViewer = await access.asset.checkViewerAccess(auth.user.id, setDifference(ids, isOwner), { del: true });
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.AlbumRead: {
@@ -255,7 +287,11 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.FaceDelete: {
-      return access.person.checkFaceOwnerAccess(auth.user.id, ids);
+      const isOwner = await access.person.checkFaceOwnerAccess(auth.user.id, ids);
+      const isViewer = await access.person.checkViewerFaceAccess(auth.user.id, setDifference(ids, isOwner), {
+        edit: true,
+      });
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.NotificationRead:
@@ -294,18 +330,35 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.PersonCreate: {
-      return access.person.checkFaceOwnerAccess(auth.user.id, ids);
+      const isOwner = await access.person.checkFaceOwnerAccess(auth.user.id, ids);
+      const isViewer = await access.person.checkViewerFaceAccess(auth.user.id, setDifference(ids, isOwner), {
+        edit: true,
+      });
+      return setUnion(isOwner, isViewer);
     }
 
-    case Permission.PersonRead:
+    case Permission.PersonRead: {
+      const isOwner = await access.person.checkOwnerAccess(auth.user.id, ids);
+      const isViewer = await access.person.checkViewerAccess(auth.user.id, setDifference(ids, isOwner));
+      return setUnion(isOwner, isViewer);
+    }
+
     case Permission.PersonUpdate:
     case Permission.PersonDelete:
     case Permission.PersonMerge: {
-      return await access.person.checkOwnerAccess(auth.user.id, ids);
+      const isOwner = await access.person.checkOwnerAccess(auth.user.id, ids);
+      const isViewer = await access.person.checkViewerAccess(auth.user.id, setDifference(ids, isOwner), {
+        edit: true,
+      });
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.PersonReassign: {
-      return access.person.checkFaceOwnerAccess(auth.user.id, ids);
+      const isOwner = await access.person.checkFaceOwnerAccess(auth.user.id, ids);
+      const isViewer = await access.person.checkViewerFaceAccess(auth.user.id, setDifference(ids, isOwner), {
+        edit: true,
+      });
+      return setUnion(isOwner, isViewer);
     }
 
     case Permission.ClusterGroupRead: {

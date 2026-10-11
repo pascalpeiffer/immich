@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { type ExpressionBuilder, type Insertable, type Kysely, type Updateable, sql } from 'kysely';
 import { jsonObjectFrom } from 'kysely/helpers/postgres';
+import { has } from 'lodash-es';
 import { InjectKysely } from 'nestjs-kysely';
 import { AssetFace } from 'src/database.js';
 import { Chunked, ChunkedArray, DummyValue, GenerateSql } from 'src/decorators.js';
@@ -10,7 +11,16 @@ import { AssetFaceTable } from 'src/schema/tables/asset-face.table.js';
 import { FaceSearchTable } from 'src/schema/tables/face-search.table.js';
 import { PersonGroupTable } from 'src/schema/tables/person-group.table.js';
 import { PersonTable } from 'src/schema/tables/person.table.js';
-import { asUuid, dummy, inSharedAlbum, removeUndefinedKeys, withFilePath } from 'src/utils/database.js';
+import {
+  asUuid,
+  assetInViewedLibrary,
+  dummy,
+  hasAssetAccess,
+  hasPersonAccess,
+  inSharedAlbum,
+  removeUndefinedKeys,
+  withFilePath,
+} from 'src/utils/database.js';
 import { type PaginationOptions, paginationHelper } from 'src/utils/pagination.js';
 
 export interface PersonSearchOptions {
@@ -82,7 +92,8 @@ const withPerson = ({ viewingUserId }: WithPersonOptions) => {
         .selectFrom('person')
         .selectAll('person')
         .whereRef('person.personGroupId', '=', 'asset_face.personGroupId')
-        .where('person.ownerId', '=', viewingUserId),
+        .where((eb) => hasPersonAccess(eb, viewingUserId))
+        .limit(1),
     ).as('person');
 };
 
@@ -211,7 +222,7 @@ export class PersonRepository {
     return this.db
       .selectFrom('person')
       .selectAll('person')
-      .$if(!!options.ownerId, (qb) => qb.where('person.ownerId', '=', options.ownerId!))
+      .$if(!!options.ownerId, (qb) => qb.where((eb) => hasPersonAccess(eb, options.ownerId!)))
       .$if(options.thumbnailPath !== undefined, (qb) => qb.where('person.thumbnailPath', '=', options.thumbnailPath!))
       .$if(options.faceAssetId === null, (qb) => qb.where('person.faceAssetId', 'is', null))
       .$if(!!options.faceAssetId, (qb) => qb.where('person.faceAssetId', '=', options.faceAssetId!))
@@ -242,7 +253,7 @@ export class PersonRepository {
           .on('asset.visibility', '=', sql.lit(AssetVisibility.Timeline))
           .on('asset.deletedAt', 'is', null),
       )
-      .where('person.ownerId', '=', userId)
+      .where((eb) => hasPersonAccess(eb, userId))
       .where('asset_face.deletedAt', 'is', null)
       .where('asset_face.isVisible', 'is', true)
       .orderBy('person.isHidden', 'asc')
@@ -270,12 +281,18 @@ export class PersonRepository {
             (eb) =>
               eb
                 .selectFrom('face_search')
+                .innerJoin('asset_face', 'asset_face.id', 'face_search.faceId')
+                .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+                .where((eb) => hasAssetAccess(eb, [userId]))
                 .select('face_search.embedding')
                 .whereRef('face_search.faceId', '=', 'person.faceAssetId'),
             '<=>',
             (eb) =>
               eb
                 .selectFrom('face_search')
+                .innerJoin('asset_face', 'asset_face.id', 'face_search.faceId')
+                .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+                .where((eb) => hasAssetAccess(eb, [userId]))
                 .select('face_search.embedding')
                 .where('face_search.faceId', '=', options!.closestFaceAssetId!),
           ),
@@ -284,7 +301,16 @@ export class PersonRepository {
       .$if(!options?.closestFaceAssetId, (qb) =>
         qb
           .orderBy(sql`NULLIF(person.name, '') is null`, 'asc')
-          .orderBy((eb) => eb.fn.count('asset_face.assetId'), 'desc')
+          .orderBy(
+            (eb) =>
+              eb
+                .selectFrom('asset_face')
+                .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+                .whereRef('asset_face.personGroupId', '=', 'person.personGroupId') // correlate to outer row
+                .where((eb) => hasAssetAccess(eb, [userId]))
+                .select((eb) => eb.fn.countAll().as('count')),
+            'desc',
+          )
           .orderBy(sql`NULLIF(person.name, '')`, (om) => om.asc().nullsLast())
           .orderBy('person.createdAt'),
       )
@@ -399,7 +425,7 @@ export class PersonRepository {
       .selectFrom('person')
       .selectAll('person')
       .where('person.personGroupId', '=', personGroupId)
-      .where('person.ownerId', '=', ownerId)
+      .where((eb) => hasPersonAccess(eb, ownerId))
       .executeTakeFirst();
   }
 
@@ -411,7 +437,7 @@ export class PersonRepository {
       )
       .selectFrom(['similarity_threshold', 'person'])
       .selectAll('person')
-      .where('person.ownerId', '=', userId)
+      .where((eb) => hasPersonAccess(eb, userId))
       .where(() => sql`f_unaccent("person"."name") %> f_unaccent(${personName})`)
       .orderBy(sql`f_unaccent("person"."name") <->>> f_unaccent(${personName})`)
       .limit(100)
@@ -425,7 +451,7 @@ export class PersonRepository {
       .selectFrom('person')
       .select(['person.personGroupId', 'person.name'])
       .distinctOn((eb) => eb.fn('lower', ['person.name']))
-      .where((eb) => eb.and([eb('person.ownerId', '=', userId), eb('person.name', '!=', '')]))
+      .where((eb) => eb.and([hasPersonAccess(eb, userId), eb('person.name', '!=', '')]))
       .$if(!withHidden, (qb) => qb.where('person.isHidden', '=', false))
       .execute();
   }
@@ -439,7 +465,7 @@ export class PersonRepository {
           .onRef('asset.id', '=', 'asset_face.assetId')
           .on('asset.visibility', '=', sql.lit(AssetVisibility.Timeline))
           .on('asset.deletedAt', 'is', null)
-          .on((eb) => eb.or([eb('asset.ownerId', '=', asUuid(userId)), inSharedAlbum(eb, userId)])),
+          .on((eb) => eb.or([hasAssetAccess(eb, [userId]), inSharedAlbum(eb, [userId])])),
       )
       .select((eb) => eb.fn.count(eb.fn('distinct', ['asset.id'])).as('count'))
       .where('asset_face.deletedAt', 'is', null)
@@ -475,7 +501,7 @@ export class PersonRepository {
             ),
         ),
       )
-      .where('person.ownerId', '=', userId)
+      .where((eb) => hasPersonAccess(eb, userId))
       .select((eb) => eb.fn.coalesce(eb.fn.countAll<number>(), zero).as('total'))
       .select((eb) => eb.fn.coalesce(eb.fn.countAll<number>().filterWhere('isHidden', '=', true), zero).as('hidden'))
       .executeTakeFirstOrThrow();
@@ -633,7 +659,7 @@ export class PersonRepository {
     return this.db
       .updateTable('person')
       .set(person)
-      .where('person.ownerId', '=', person.ownerId)
+      .where((eb) => hasPersonAccess(eb, person.ownerId))
       .where('person.personGroupId', '=', person.personGroupId)
       .returningAll()
       .executeTakeFirstOrThrow();

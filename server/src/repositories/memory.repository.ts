@@ -9,6 +9,7 @@ import { MemorySearchDto } from 'src/dtos/memory.dto.js';
 import { AssetOrderWithRandom, AssetVisibility } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
 import { MemoryTable } from 'src/schema/tables/memory.table.js';
+import { hasMemoryAccess } from 'src/utils/database.js';
 
 @Injectable()
 export class MemoryRepository implements IBulkAsset {
@@ -30,23 +31,26 @@ export class MemoryRepository implements IBulkAsset {
   }
 
   searchBuilder(ownerId: string, dto: MemorySearchDto) {
-    return this.db
-      .selectFrom('memory')
-      .$if(dto.isSaved !== undefined, (qb) => qb.where('isSaved', '=', dto.isSaved!))
-      .$if(dto.type !== undefined, (qb) => qb.where('type', '=', dto.type!))
-      .$if(dto.for !== undefined, (qb) =>
-        qb
-          .where((where) => where.or([where('showAt', 'is', null), where('showAt', '<=', dto.for!)]))
-          .where((where) => where.or([where('hideAt', 'is', null), where('hideAt', '>=', dto.for!)])),
-      )
-      .$if(dto.isUpcoming !== undefined, (qb) => {
-        const now = DateTime.now().toJSDate();
-        return dto.isUpcoming
-          ? qb.where('showAt', '>', now)
-          : qb.where((where) => where.or([where('showAt', 'is', null), where('showAt', '<=', now)]));
-      })
-      .where('deletedAt', dto.isTrashed ? 'is not' : 'is', null)
-      .where('ownerId', '=', ownerId);
+    return (
+      this.db
+        .selectFrom('memory')
+        .$if(dto.isSaved !== undefined, (qb) => qb.where('isSaved', '=', dto.isSaved!))
+        .$if(dto.type !== undefined, (qb) => qb.where('type', '=', dto.type!))
+        .$if(dto.for !== undefined, (qb) =>
+          qb
+            .where((where) => where.or([where('showAt', 'is', null), where('showAt', '<=', dto.for!)]))
+            .where((where) => where.or([where('hideAt', 'is', null), where('hideAt', '>=', dto.for!)])),
+        )
+        .$if(dto.isUpcoming !== undefined, (qb) => {
+          const now = DateTime.now().toJSDate();
+          return dto.isUpcoming
+            ? qb.where('showAt', '>', now)
+            : qb.where((where) => where.or([where('showAt', 'is', null), where('showAt', '<=', now)]));
+        })
+        .where('deletedAt', dto.isTrashed ? 'is not' : 'is', null)
+        //.where('ownerId', '=', ownerId);
+        .where((eb) => hasMemoryAccess(eb, [ownerId]))
+    );
   }
 
   @GenerateSql(

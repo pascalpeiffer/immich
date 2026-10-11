@@ -14,6 +14,7 @@ import { SystemMetadataRepository } from 'src/repositories/system-metadata.repos
 import { DB } from 'src/schema/index.js';
 import { GeodataPlacesTable } from 'src/schema/tables/geodata-places.table.js';
 import { NaturalEarthCountriesTable } from 'src/schema/tables/natural-earth-countries.table.js';
+import { hasAssetAccess } from 'src/utils/database.js';
 
 export interface MapMarkerSearchOptions {
   isArchived?: boolean;
@@ -90,7 +91,7 @@ export class MapRepository {
         qb.where((eb) =>
           eb.or([
             eb('asset.visibility', '=', AssetVisibility.Timeline),
-            eb.and([eb('asset.ownerId', '=', authUserId), eb('asset.visibility', '=', AssetVisibility.Archive)]),
+            eb.and([hasAssetAccess(eb, [authUserId]), eb('asset.visibility', '=', AssetVisibility.Archive)]),
           ]),
         ),
       )
@@ -104,7 +105,7 @@ export class MapRepository {
         const expression: Expression<SqlBool>[] = [];
 
         if (ownerIds.length > 0) {
-          expression.push(eb('ownerId', 'in', ownerIds));
+          expression.push(hasAssetAccess(eb, ownerIds));
         }
 
         if (albumIds.length > 0) {

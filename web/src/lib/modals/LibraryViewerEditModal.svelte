@@ -41,11 +41,12 @@
     <Select options={albumAccesOptions} bind:value={selectedAlbumAccess} class="mb-2" />
   </Field>
 
-  <Field label="Asset edit" class="w-full">
+  <Field label="Hard: Asset edit (global)" class="w-full">
     <Switch bind:checked={editPermission} class="mb-2" />
+    <Text size="tiny" class="mb-4">Hard: -> Edits, Faces, Description, Date, Location, Update Functions</Text>
   </Field>
 
-  <Field label="Asset delete" class="w-full">
+  <Field label="Hard: Asset delete (global)" class="w-full">
     <Switch bind:checked={deletePermission} class="mb-2" />
   </Field>
 </FormModal>

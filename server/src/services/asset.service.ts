@@ -80,6 +80,27 @@ export class AssetService extends BaseService {
       throw new BadRequestException('Asset not found');
     }
 
+    const viewerAccessIds = await this.accessRepository.asset.checkViewerAccess(auth.user.id, new Set<string>([id]));
+    if (viewerAccessIds.has(id) && asset) {
+      asset!.ownerId = auth.user.id;
+
+      const viewer = await this.viewerRepository.getByLibraryAndUserId(asset.libraryId!, auth.user.id);
+
+      let fav = false;
+      let vis = asset.visibility;
+
+      if (viewer) {
+        const favorite = await this.viewerRepository.getFavorite(viewer!.id, asset.id);
+        fav = favorite ? favorite.isFavorite : fav;
+
+        const visibility = await this.viewerRepository.getVisibility(viewer!.id, asset.id);
+        vis = visibility ? visibility.visibility : vis;
+      }
+
+      asset.isFavorite = fav;
+      asset.visibility = vis;
+    }
+
     if (auth.sharedLink && !auth.sharedLink.showExif) {
       return mapAsset(asset, { stripMetadata: true, withStack: true, auth });
     }
@@ -97,11 +118,37 @@ export class AssetService extends BaseService {
     return data;
   }
 
+  //TODO UPDATE PERMS ETC
   async update(auth: AuthDto, id: string, dto: UpdateAssetDto): Promise<AssetResponseDto> {
-    await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id] });
-
     const { description, dateTimeOriginal, latitude, longitude, rating, ...rest } = dto;
     const repos = { asset: this.assetRepository, event: this.eventRepository };
+
+    const viewerAccessIds = await this.accessRepository.asset.checkViewerAccess(auth.user.id, new Set<string>([id]));
+    const viewerAsset = await this.assetRepository.getById(id);
+    if (viewerAccessIds.has(id)) {
+      await this.requireAccess({ auth, permission: Permission.AssetRead, ids: [id] });
+      if (!viewerAsset) {
+        throw new BadRequestException('Asset not found');
+      }
+
+      const viewer = await this.viewerRepository.getByLibraryAndUserId(viewerAsset.libraryId!, auth.user.id);
+      const vis = dto.visibility;
+      const fav = dto.isFavorite;
+
+      if (vis !== undefined) {
+        await this.viewerRepository.setVisibility(viewer!.id, viewerAsset.id, vis);
+      }
+
+      if (fav !== undefined) {
+        await this.viewerRepository.setFavorite(viewer!.id, viewerAsset.id, fav);
+      }
+
+      //TODO enable exif / the rest  update?
+
+      return this.get(auth, id) as Promise<AssetResponseDto>;
+    }
+
+    await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id] });
 
     let previousMotion: { id: string } | null = null;
     if (rest.livePhotoVideoId) {
@@ -134,7 +181,6 @@ export class AssetService extends BaseService {
 
   async updateAll(auth: AuthDto, dto: AssetBulkUpdateDto): Promise<void> {
     const {
-      ids,
       isFavorite,
       visibility,
       dateTimeOriginal,
@@ -146,6 +192,7 @@ export class AssetService extends BaseService {
       dateTimeRelative,
       timeZone,
     } = dto;
+    let { ids } = dto;
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids });
 
     const assetDto = omitBy({ isFavorite, visibility, duplicateId }, isUndefined);
@@ -159,6 +206,37 @@ export class AssetService extends BaseService {
       },
       isUndefined,
     );
+
+    const viewerAccessIds = await this.accessRepository.asset.checkViewerAccess(auth.user.id, new Set<string>(ids));
+    ids = ids.filter((i) => !viewerAccessIds.has(i));
+
+    for (const id of viewerAccessIds) {
+      //console.log(id);
+      const viewerAsset = await this.assetRepository.getById(id);
+      if (!viewerAsset) {
+        throw new BadRequestException('Asset not found');
+      }
+
+      const viewer = await this.viewerRepository.getByLibraryAndUserId(viewerAsset.libraryId!, auth.user.id);
+      if (!viewer) {
+        throw new BadRequestException('Viewer not found');
+      }
+
+      if (dto.visibility !== undefined) {
+        //console.log(visibility);
+        await this.viewerRepository.setVisibility(viewer.id, viewerAsset.id, dto.visibility);
+      }
+
+      if (dto.isFavorite !== undefined) {
+        await this.viewerRepository.setFavorite(viewer.id, viewerAsset.id, dto.isFavorite);
+      }
+
+      // TODO: enable exif / the rest update?
+    }
+
+    if (ids.length === 0) {
+      return;
+    }
 
     if (Object.keys(exifDto).length > 0) {
       await this.assetRepository.updateAllExif(ids, exifDto);

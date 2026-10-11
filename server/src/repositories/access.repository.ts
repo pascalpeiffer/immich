@@ -143,6 +143,100 @@ class AssetAccess {
 
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
   @ChunkedSet({ paramIndex: 1 })
+  async checkViewerAccess(userId: string, assetIds: Set<string>, filter?: { del?: boolean; edit?: boolean }) {
+    if (assetIds.size === 0) {
+      return new Set<string>();
+    }
+
+    return (
+      this.db
+        .with('target', (qb) => qb.selectNoFrom(sql`array[${sql.join([...assetIds])}]::uuid[]`.as('ids')))
+        .selectFrom('asset')
+        .innerJoin('library', (join) =>
+          join.onRef('library.id', '=', 'asset.libraryId').on('library.deletedAt', 'is', null),
+        )
+        .crossJoin('target')
+        .select(['asset.id', 'asset.livePhotoVideoId'])
+        .$if(filter !== undefined && filter.del !== undefined && filter.del, (qb) =>
+          qb.where((eb) =>
+            eb(
+              eb
+                .selectFrom('viewer')
+                .select('viewer.delete')
+                .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+                .where('viewer.userId', '=', userId)
+                .limit(1),
+              '=',
+              true,
+            ),
+          ),
+        )
+        .$if(filter !== undefined && filter.edit !== undefined && filter.edit, (qb) =>
+          qb.where((eb) =>
+            eb(
+              eb
+                .selectFrom('viewer')
+                .select('viewer.edit')
+                .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+                .where('viewer.userId', '=', userId)
+                .limit(1),
+              '=',
+              true,
+            ),
+          ),
+        )
+        .where((eb) =>
+          eb.or([
+            eb('asset.deletedAt', 'is', null),
+            eb.or([
+              eb('asset.ownerId', '=', userId),
+              eb(
+                eb
+                  .selectFrom('viewer')
+                  .select('viewer.delete')
+                  .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+                  .where('viewer.userId', '=', userId),
+                '=',
+                true,
+              ),
+            ]),
+          ]),
+        )
+        .where((eb) =>
+          eb.or([
+            eb('asset.id', '=', sql<string>`any(target.ids)`),
+            eb('asset.livePhotoVideoId', '=', sql<string>`any(target.ids)`),
+          ]),
+        )
+        .where('asset.visibility', '!=', sql.lit(AssetVisibility.Locked))
+        //.where(sql<boolean>`${userId} = any(library."viewerIds")`)
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('viewer')
+              .select('viewer.userId')
+              .whereRef('viewer.libraryId', '=', 'asset.libraryId')
+              .where('viewer.userId', '=', userId),
+          ),
+        )
+        .execute()
+        .then((assets) => {
+          const allowedIds = new Set<string>();
+          for (const asset of assets) {
+            if (asset.id && assetIds.has(asset.id)) {
+              allowedIds.add(asset.id);
+            }
+            if (asset.livePhotoVideoId && assetIds.has(asset.livePhotoVideoId)) {
+              allowedIds.add(asset.livePhotoVideoId);
+            }
+          }
+          return allowedIds;
+        })
+    );
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
+  @ChunkedSet({ paramIndex: 1 })
   async checkAlbumAccess(userId: string, assetIds: Set<string>) {
     if (assetIds.size === 0) {
       return new Set<string>();
@@ -550,6 +644,67 @@ class PersonAccess {
       .where('asset.ownerId', '=', userId)
       .execute()
       .then((faces) => new Set(faces.map((face) => face.id)));
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
+  @ChunkedSet({ paramIndex: 1 })
+  async checkViewerFaceAccess(userId: string, assetFaceIds: Set<string>, filter?: { del?: boolean; edit?: boolean }) {
+    if (assetFaceIds.size === 0) {
+      return new Set<string>();
+    }
+
+    return this.db
+      .selectFrom('asset_face')
+      .select('asset_face.id')
+      .where('asset_face.id', 'in', [...assetFaceIds])
+      .leftJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId').on('asset.deletedAt', 'is', null))
+      .where('asset.ownerId', 'in', (eb) => {
+        return eb
+          .selectFrom('viewer')
+          .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+          .select('asset.ownerId')
+          .$if(filter !== undefined && filter.del !== undefined && filter.del, (qb) =>
+            qb.where('viewer.delete', '=', true),
+          )
+          .$if(filter !== undefined && filter.edit !== undefined && filter.edit, (qb) =>
+            qb.where('viewer.edit', '=', true),
+          )
+          .where('viewer.userId', '=', userId)
+          .whereRef('asset.libraryId', '=', 'library.id');
+      })
+      .execute()
+      .then((faces) => new Set(faces.map((face) => face.id)));
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
+  @ChunkedSet({ paramIndex: 1 })
+  async checkViewerAccess(userId: string, personGroupIds: Set<string>, filter?: { del?: boolean; edit?: boolean }) {
+    if (personGroupIds.size === 0) {
+      return new Set<string>();
+    }
+
+    return this.db
+      .selectFrom('person')
+      .select('person.personGroupId')
+      .where('person.personGroupId', 'in', [...personGroupIds])
+      .where('person.ownerId', 'in', (eb) => {
+        return eb
+          .selectFrom('viewer')
+          .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+          .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
+          .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
+          .select('asset.ownerId')
+          .$if(filter !== undefined && filter.del !== undefined && filter.del, (qb) =>
+            qb.where('viewer.delete', '=', true),
+          )
+          .$if(filter !== undefined && filter.edit !== undefined && filter.edit, (qb) =>
+            qb.where('viewer.edit', '=', true),
+          )
+          .where('viewer.userId', '=', userId)
+          .whereRef('asset.libraryId', '=', 'library.id');
+      })
+      .execute()
+      .then((persons) => new Set(persons.map((person) => person.personGroupId)));
   }
 }
 
