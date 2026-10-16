@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { JobItem } from 'src/types.js';
+import { Viewer } from 'src/database.js';
 import { OnEvent } from 'src/decorators.js';
 import { mapAsset } from 'src/dtos/asset-response.dto.js';
 import { JobCreateDto } from 'src/dtos/job.dto.js';
@@ -134,31 +135,35 @@ export class JobService extends BaseService {
         const edits = await this.assetEditRepository.getWithSyncInfo(item.data.id);
 
         if (asset) {
-          this.websocketRepository.clientSend('AssetEditReadyV2', asset.ownerId, {
-            asset: {
-              id: asset.id,
-              ownerId: asset.ownerId,
-              originalFileName: asset.originalFileName,
-              thumbhash: asset.thumbhash ? hexOrBufferToBase64(asset.thumbhash) : null,
-              checksum: hexOrBufferToBase64(asset.checksum),
-              fileCreatedAt: asset.fileCreatedAt,
-              fileModifiedAt: asset.fileModifiedAt,
-              createdAt: asset.createdAt,
-              localDateTime: asset.localDateTime,
-              duration: asset.duration,
-              type: asset.type,
-              deletedAt: asset.deletedAt,
-              isFavorite: asset.isFavorite,
-              visibility: asset.visibility,
-              livePhotoVideoId: asset.livePhotoVideoId,
-              stackId: asset.stackId,
-              libraryId: asset.libraryId,
-              width: asset.width,
-              height: asset.height,
-              isEdited: asset.isEdited,
-            },
-            edit: edits,
-          });
+          const viewers: Viewer[] = asset.libraryId ? await this.viewerRepository.getByLibraryId(asset.libraryId) : [];
+          const userIdList = [...viewers.map((v) => v.userId), asset.ownerId];
+          for (const userId of userIdList) {
+            this.websocketRepository.clientSend('AssetEditReadyV2', userId, {
+              asset: {
+                id: asset.id,
+                ownerId: userId,
+                originalFileName: asset.originalFileName,
+                thumbhash: asset.thumbhash ? hexOrBufferToBase64(asset.thumbhash) : null,
+                checksum: hexOrBufferToBase64(asset.checksum),
+                fileCreatedAt: asset.fileCreatedAt,
+                fileModifiedAt: asset.fileModifiedAt,
+                createdAt: asset.createdAt,
+                localDateTime: asset.localDateTime,
+                duration: asset.duration,
+                type: asset.type,
+                deletedAt: asset.deletedAt,
+                isFavorite: asset.isFavorite,
+                visibility: asset.visibility,
+                livePhotoVideoId: asset.livePhotoVideoId,
+                stackId: asset.stackId,
+                libraryId: asset.libraryId,
+                width: asset.width,
+                height: asset.height,
+                isEdited: asset.isEdited,
+              },
+              edit: edits,
+            });
+          }
         }
 
         break;

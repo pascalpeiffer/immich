@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { ArgOf } from 'src/repositories/event.repository.js';
 import type { EmailImageAttachment, JobOf } from 'src/types.js';
+import { Viewer } from 'src/database.js';
 import { OnEvent, OnJob } from 'src/decorators.js';
 import { MapAlbumDto } from 'src/dtos/album.dto.js';
 import { mapAsset } from 'src/dtos/asset-response.dto.js';
@@ -171,11 +172,15 @@ export class NotificationService extends BaseService {
 
     const [asset] = await this.assetRepository.getByIdsWithAllRelationsButStacks([assetId], userId);
     if (asset) {
-      this.websocketRepository.clientSend(
-        'on_asset_update',
-        userId,
-        mapAsset(asset, { auth: { user: { id: userId } } as AuthDto }),
-      );
+      const viewers: Viewer[] = asset.libraryId ? await this.viewerRepository.getByLibraryId(asset.libraryId) : [];
+      const userIds = [...viewers.map((v) => v.id), userId];
+      for (const id of userIds) {
+        this.websocketRepository.clientSend(
+          'on_asset_update',
+          id,
+          mapAsset(asset, { auth: { user: { id } } as AuthDto }),
+        );
+      }
     }
   }
 

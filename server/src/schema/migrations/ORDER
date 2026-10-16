@@ -97,3 +97,11 @@
 1789419229196-ConvertUserOAuthIdEmptyStringToNull
 1791579596170-CreateViewerAndViewerAssetTables
 1791738471555-AddViewerAlbumThumb
+1791827762248-AddViewerAudits
+1791830072359-EditViewerEdits
+1791836123819-ViewerTablePeopleBump
+1791836239527-ViewerTablePeopleBump2
+1791839118770-ViewerTablePeopleBump3
+1792004119943-UpdateLibraryBumpFunction
+1792006432810-BumpForViewerFunction
+1792011767923-BumpForViewerFunction2

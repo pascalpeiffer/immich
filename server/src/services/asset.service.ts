@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { drop, isUndefined, omitBy } from 'lodash-es';
+import { isUndefined, omitBy } from 'lodash-es';
 import { DateTime, Duration } from 'luxon';
 import type { AssetFile } from 'src/database.js';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
@@ -209,6 +209,38 @@ export class AssetService extends BaseService {
       timeZone,
     } = dto;
     let { ids } = dto;
+
+    const viewerAccessIds = await this.accessRepository.asset.checkViewerAccess(auth.user.id, new Set<string>(ids));
+    ids = ids.filter((i) => !viewerAccessIds.has(i));
+
+    await this.requireAccess({ auth, permission: Permission.AssetRead, ids: viewerAccessIds });
+
+    for (const id of viewerAccessIds) {
+      const viewerAsset = await this.assetRepository.getById(id);
+      if (!viewerAsset) {
+        throw new BadRequestException('Asset not found');
+      }
+
+      const viewer = await this.viewerRepository.getByLibraryAndUserId(viewerAsset.libraryId!, auth.user.id);
+      if (!viewer) {
+        throw new BadRequestException('Viewer not found');
+      }
+
+      const vis = dto.visibility;
+      const fav = dto.isFavorite;
+
+      if (vis !== undefined) {
+        await this.viewerRepository.setVisibility(viewer!.id, viewerAsset.id, vis);
+      }
+
+      if (fav !== undefined) {
+        await this.viewerRepository.setFavorite(viewer!.id, viewerAsset.id, fav);
+      }
+
+      dto.isFavorite = undefined;
+      dto.visibility = undefined;
+    }
+
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids });
 
     const assetDto = omitBy({ isFavorite, visibility, duplicateId }, isUndefined);
@@ -222,33 +254,6 @@ export class AssetService extends BaseService {
       },
       isUndefined,
     );
-
-    const viewerAccessIds = await this.accessRepository.asset.checkViewerAccess(auth.user.id, new Set<string>(ids));
-    ids = ids.filter((i) => !viewerAccessIds.has(i));
-
-    for (const id of viewerAccessIds) {
-      //console.log(id);
-      const viewerAsset = await this.assetRepository.getById(id);
-      if (!viewerAsset) {
-        throw new BadRequestException('Asset not found');
-      }
-
-      const viewer = await this.viewerRepository.getByLibraryAndUserId(viewerAsset.libraryId!, auth.user.id);
-      if (!viewer) {
-        throw new BadRequestException('Viewer not found');
-      }
-
-      if (dto.visibility !== undefined) {
-        //console.log(visibility);
-        await this.viewerRepository.setVisibility(viewer.id, viewerAsset.id, dto.visibility);
-      }
-
-      if (dto.isFavorite !== undefined) {
-        await this.viewerRepository.setFavorite(viewer.id, viewerAsset.id, dto.isFavorite);
-      }
-
-      // TODO: enable exif / the rest update?
-    }
 
     if (ids.length === 0) {
       return;

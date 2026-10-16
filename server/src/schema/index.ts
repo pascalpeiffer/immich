@@ -92,7 +92,9 @@ import {
   VideoStreamSessionTable,
   VideoStreamVariantTable,
 } from 'src/schema/tables/video-stream.table.js';
+import { ViewerAssetAuditTable } from 'src/schema/tables/viewer-asset-audit.table.js';
 import { ViewerAssetTable } from 'src/schema/tables/viewer-asset.table.js';
+import { ViewerPersonAuditTable } from 'src/schema/tables/viewer-person-audit.table.js';
 import { ViewerTable } from 'src/schema/tables/viewer.table.js';
 import { WorkflowLogTable } from 'src/schema/tables/workflow-log.table.js';
 import { WorkflowStepTable } from 'src/schema/tables/workflow-step.table.js';
@@ -242,6 +244,8 @@ export interface DB {
 
   viewer: ViewerTable;
   viewer_asset: ViewerAssetTable;
+  viewer_asset_audit: ViewerAssetAuditTable;
+  viewer_person_audit: ViewerPersonAuditTable;
 
   memory: MemoryTable;
   memory_audit: MemoryAuditTable;

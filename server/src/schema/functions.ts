@@ -87,6 +87,96 @@ export const bump_library_assets = registerFunction({
     END;`,
 });
 
+export const bump_library_owner_persons = registerFunction({
+  name: 'bump_library_owner_persons',
+  returnType: 'TRIGGER',
+  language: 'PLPGSQL',
+  body: `
+    BEGIN
+      UPDATE person
+      SET "updatedAt" = clock_timestamp()
+      WHERE "ownerId" = (SELECT "ownerId" FROM library WHERE "id" = new."libraryId");
+
+      UPDATE asset_face
+      SET "updatedAt" = clock_timestamp()
+      WHERE "assetId" IN (SELECT "id" FROM asset WHERE "libraryId" = new."libraryId");
+
+      RETURN NULL;
+    END;`,
+});
+
+export const viewer_delete_audit = registerFunction({
+  name: 'viewer_delete_audit',
+  returnType: 'TRIGGER',
+  language: 'PLPGSQL',
+  body: `
+    BEGIN
+      -- assets the viewer could see through this library (never the user's own assets)
+      INSERT INTO viewer_asset_audit ("assetId", "userId")
+      SELECT a."id", old."userId"
+      FROM asset a
+      WHERE a."libraryId" = old."libraryId"
+        AND a."ownerId" <> old."userId";
+
+      -- persons of the library owner, unless the user still views another library of the same owner
+      INSERT INTO viewer_person_audit ("personId", "userId")
+      SELECT p."personGroupId", old."userId"
+      FROM person p
+      JOIN library l ON l."id" = old."libraryId"
+      WHERE p."ownerId" = l."ownerId"
+        AND p."ownerId" <> old."userId"
+        AND NOT EXISTS (
+          SELECT 1
+          FROM viewer v
+          JOIN library l2 ON l2."id" = v."libraryId"
+          WHERE v."userId" = old."userId"
+            AND l2."ownerId" = l."ownerId"
+        );
+
+      RETURN NULL;
+    END;`,
+});
+
+export const bump_library_asset_details = registerFunction({
+  name: 'bump_library_asset_details',
+  returnType: 'TRIGGER',
+  language: 'PLPGSQL',
+  body: `
+    BEGIN
+      UPDATE asset_exif SET "updateId" = immich_uuid_v7()
+      WHERE "assetId" IN (SELECT "id" FROM asset WHERE "libraryId" = new."libraryId");
+
+      UPDATE asset_metadata SET "updateId" = immich_uuid_v7()
+      WHERE "assetId" IN (SELECT "id" FROM asset WHERE "libraryId" = new."libraryId");
+
+      UPDATE asset_ocr SET "updateId" = immich_uuid_v7()
+      WHERE "assetId" IN (SELECT "id" FROM asset WHERE "libraryId" = new."libraryId");
+
+      UPDATE asset_edit SET "updateId" = immich_uuid_v7()
+      WHERE "assetId" IN (SELECT "id" FROM asset WHERE "libraryId" = new."libraryId");
+
+      -- memories first, so the client has the memory before its memory_asset rows
+      UPDATE memory SET "updatedAt" = clock_timestamp()
+      WHERE "ownerId" = (SELECT "ownerId" FROM library WHERE "id" = new."libraryId");
+
+      UPDATE memory_asset SET "updateId" = immich_uuid_v7()
+      WHERE "assetId" IN (SELECT "id" FROM asset WHERE "libraryId" = new."libraryId");
+
+      RETURN NULL;
+    END;`,
+});
+
+export const bump_memory_on_asset = registerFunction({
+  name: 'bump_memory_on_asset',
+  returnType: 'TRIGGER',
+  language: 'PLPGSQL',
+  body: `
+    BEGIN
+      UPDATE memory SET "updatedAt" = clock_timestamp() WHERE "id" = new."memoriesId";
+      RETURN NULL;
+    END;`,
+});
+
 export const f_concat_ws = registerFunction({
   name: 'f_concat_ws',
   arguments: ['text', 'text[]'],
