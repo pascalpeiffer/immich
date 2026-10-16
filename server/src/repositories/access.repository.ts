@@ -714,15 +714,17 @@ class PersonAccess {
 
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
   @ChunkedSet({ paramIndex: 1 })
-  async checkViewerAccess(userId: string, personGroupIds: Set<string>, filter?: { del?: boolean; edit?: boolean }) {
+  async checkViewerAccess(userId: string, personGroupIds: Set<PersonId>, filter?: { del?: boolean; edit?: boolean }) {
     if (personGroupIds.size === 0) {
-      return new Set<string>();
+      return new Set<PersonId>();
     }
+
+    const pgi = [...personGroupIds].map((p) => p.personGroupId);
 
     return this.db
       .selectFrom('person')
-      .select('person.personGroupId')
-      .where('person.personGroupId', 'in', [...personGroupIds])
+      .select(['person.personGroupId', 'person.ownerId'])
+      .where('person.personGroupId', 'in', [...pgi])
       .where('person.ownerId', 'in', (eb) => {
         return eb
           .selectFrom('viewer')
@@ -740,7 +742,15 @@ class PersonAccess {
           .whereRef('asset.libraryId', '=', 'library.id');
       })
       .execute()
-      .then((persons) => new Set(persons.map((person) => person.personGroupId)));
+      .then(
+        (persons) =>
+          new Set<PersonId>(
+            persons.map(({ personGroupId }) => ({
+              ownerId: userId,
+              personGroupId,
+            })),
+          ),
+      );
   }
 }
 
