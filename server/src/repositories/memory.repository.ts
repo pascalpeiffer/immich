@@ -17,7 +17,7 @@ import { AssetFileType, AssetOrderWithRandom, AssetVisibility } from 'src/enum.j
 import { type YearMonthDay } from 'src/repositories/asset.repository.js';
 import { DB } from 'src/schema/index.js';
 import { MemoryTable } from 'src/schema/tables/memory.table.js';
-import { hasMemoryAccess } from 'src/utils/database.js';
+import { hasAssetAccess, hasMemoryAccess } from 'src/utils/database.js';
 import { asLocalTime } from 'src/utils/date.js';
 
 const asMakeDate = (eb: ExpressionBuilder<DB, 'asset'>, { year, month, day }: YearMonthDay) =>
@@ -90,6 +90,7 @@ export class MemoryRepository implements IBulkAsset {
             .selectAll('asset')
             .innerJoin('memory_asset', 'asset.id', 'memory_asset.assetId')
             .whereRef('memory_asset.memoriesId', '=', 'memory.id')
+            .where((eb) => hasAssetAccess(eb, [ownerId]))
             .where('asset.visibility', '=', sql.lit(AssetVisibility.Timeline))
             .where('asset.deletedAt', 'is', null)
             .where((eb) =>
@@ -133,6 +134,7 @@ export class MemoryRepository implements IBulkAsset {
       .selectFrom('asset')
       .where('asset.ownerId', '=', ownerId)
       .where('asset.visibility', '=', AssetVisibility.Timeline)
+      .where((eb) => hasAssetAccess(eb, [ownerId]))
       .where('asset.deletedAt', 'is', null)
       .where((eb) =>
         eb.exists((qb) =>

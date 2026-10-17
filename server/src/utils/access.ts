@@ -76,7 +76,6 @@ export const checkPersonAccess = async (
     case Permission.PersonRead: {
       const hasAccess = await access.person.checkAccess(auth.user.id, idSet, PERSON_READ_ROLES);
       const isViewer = await access.person.checkViewerAccess(auth.user.id, setDifference(idSet, hasAccess));
-      console.log(isViewer);
       return setUnion(hasAccess, isViewer);
     }
 
