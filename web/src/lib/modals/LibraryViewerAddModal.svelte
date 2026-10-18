@@ -20,8 +20,8 @@
   const loadUsers = async () => {
     let users = await searchUsers();
 
-    // remove current user
-    users = users.filter(({ id }) => id !== authManager.user.id);
+    //filter library owner
+    users = users.filter((user) => user.id !== library.ownerId);
 
     //const viewersIds = library.viewerIds;
     const viewersIds = new Set([viewers.map((v) => v.userId)]);
