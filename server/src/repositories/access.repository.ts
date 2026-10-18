@@ -719,12 +719,13 @@ class PersonAccess {
       return new Set<PersonId>();
     }
 
-    const pgi = [...personGroupIds].map((p) => p.personGroupId);
+    const inputs = [...personGroupIds];
+    const pgi = [...new Set(inputs.map((p) => p.personGroupId))];
 
-    return this.db
+    const rows = await this.db
       .selectFrom('person')
-      .select(['person.personGroupId', 'person.ownerId'])
-      .where('person.personGroupId', 'in', [...pgi])
+      .select('person.personGroupId')
+      .where('person.personGroupId', 'in', pgi)
       .where('person.ownerId', 'in', (eb) => {
         return eb
           .selectFrom('viewer')
@@ -732,25 +733,18 @@ class PersonAccess {
           .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
           .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
           .select('asset.ownerId')
-          .$if(filter !== undefined && filter.del !== undefined && filter.del, (qb) =>
-            qb.where('viewer.delete', '=', true),
-          )
-          .$if(filter !== undefined && filter.edit !== undefined && filter.edit, (qb) =>
-            qb.where('viewer.edit', '=', true),
-          )
+          .$if(!!filter?.del, (qb) => qb.where('viewer.delete', '=', true))
+          .$if(!!filter?.edit, (qb) => qb.where('viewer.edit', '=', true))
           .where('viewer.userId', '=', userId)
           .whereRef('asset.libraryId', '=', 'library.id');
       })
-      .execute()
-      .then(
-        (persons) =>
-          new Set<PersonId>(
-            persons.map(({ personGroupId }) => ({
-              ownerId: userId,
-              personGroupId,
-            })),
-          ),
-      );
+      .execute();
+
+    // personGroupIds that passed the access check
+    const allowed = new Set(rows.map((r) => r.personGroupId));
+
+    // Return the caller's own objects (original ownerId untouched) for the groups that passed
+    return new Set<PersonId>(inputs.filter((p) => allowed.has(p.personGroupId)));
   }
 }
 

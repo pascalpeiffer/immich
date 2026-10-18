@@ -252,9 +252,16 @@ export class PersonService extends BaseService {
 
   async update(auth: AuthDto, personGroupId: string, dto: PersonUpdateDto): Promise<PersonResponseDto> {
     const { userId: userIdOverride, name, birthDate, isHidden, featureFaceAssetId: assetId, isFavorite, color } = dto;
-    const targetOwnerId = userIdOverride ?? auth.user.id;
+    let targetOwnerId = userIdOverride ?? auth.user.id;
     const hasSharedProperties = hasSomeDefined([name, birthDate]);
     const hasPersonalProperties = hasSomeDefined([isHidden, isFavorite, color, assetId]);
+
+    const pOld = await this.personRepository.getByGroupId({ personGroupId, ownerId: auth.user.id });
+    if (!pOld) throw new BadRequestException('Invalid personGroupId / user combination for update!');
+
+    if (pOld.ownerId !== auth.user.id) {
+      targetOwnerId = userIdOverride ?? pOld.ownerId;
+    }
 
     if (targetOwnerId !== auth.user.id && hasPersonalProperties) {
       throw new BadRequestException('Only name and birthDate can be updated for other users');

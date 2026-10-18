@@ -130,7 +130,7 @@ const withOwnedPerson = (userId: string) => {
         .selectAll('person')
         .whereRef('person.personGroupId', '=', 'person_group.id')
         .where((eb) => hasPersonAccess(eb, userId))
-        .orderBy((eb) => eb('person.ownerId', '=', userId), 'desc') // prefer own person
+        .orderBy((eb) => eb('person.ownerId', '=', userId), 'asc') // prefer shared person
         .orderBy('person.ownerId') // stable tiebreak
         .limit(1),
     )
@@ -244,6 +244,7 @@ const withPerson = ({ viewingUserId }: WithPersonOptions) => {
         .select(withOtherPeopleForPerson(viewingUserId))
         .whereRef('person.personGroupId', '=', 'asset_face.personGroupId')
         .where((eb) => hasPersonAccess(eb, viewingUserId))
+        .orderBy((eb) => eb('person.ownerId', '=', viewingUserId), 'asc')
         .limit(1),
     ).as('person');
 };
@@ -465,7 +466,7 @@ export class PersonRepository {
               .selectAll('person')
               .whereRef('person.personGroupId', '=', 'person_group.id')
               .where((eb) => hasPersonAccess(eb, userId))
-              .orderBy((eb) => eb('person.ownerId', '=', userId), 'desc')
+              .orderBy((eb) => eb('person.ownerId', '=', userId), 'asc')
               .orderBy('person.ownerId')
               .limit(1)
               .as('owned'),
@@ -691,6 +692,7 @@ export class PersonRepository {
             .selectFrom('person')
             .select('person.ownerId')
             .whereRef('person.personGroupId', '=', 'person_group.id')
+            .orderBy((eb) => eb('person.ownerId', '=', userId), 'asc')
             .where((eb) => hasPersonAccess(eb, userId)),
           //.where('person.ownerId', '=', userId),
         ),
@@ -702,13 +704,16 @@ export class PersonRepository {
 
   @GenerateSql({ params: [{ ownerId: DummyValue.UUID, personGroupId: DummyValue.UUID }] })
   getByGroupId({ ownerId, personGroupId }: PersonId) {
-    return this.db
-      .selectFrom('person')
-      .selectAll('person')
-      .select(withOtherPeopleForPerson(ownerId))
-      .where('person.personGroupId', '=', personGroupId)
-      .where((eb) => hasPersonAccess(eb, ownerId))
-      .executeTakeFirst();
+    return (
+      this.db
+        .selectFrom('person')
+        .selectAll('person')
+        .select(withOtherPeopleForPerson(ownerId))
+        .where('person.personGroupId', '=', personGroupId)
+        .where('person.ownerId', '=', ownerId)
+        //.where((eb) => hasPersonAccess(eb, ownerId))
+        .executeTakeFirst()
+    );
   }
 
   @GenerateSql({ params: [{ ownerId: DummyValue.UUID, personGroupId: DummyValue.UUID }] })
@@ -723,6 +728,7 @@ export class PersonRepository {
           .whereRef('person.personGroupId', '=', 'person_group.id')
           //.where('person.ownerId', '=', ownerId)
           .where((eb) => hasPersonAccess(eb, ownerId))
+          .orderBy((eb) => eb('person.ownerId', '=', ownerId), 'asc')
           .limit(1)
           .as('thumbnailPath'),
         selectFrom('person')
@@ -965,14 +971,17 @@ export class PersonRepository {
   }
 
   async update(person: Updateable<PersonTable> & PersonId) {
-    return this.db
-      .updateTable('person')
-      .set(person)
-      .where((eb) => hasPersonAccess(eb, person.ownerId))
-      .where('person.personGroupId', '=', person.personGroupId)
-      .returningAll()
-      .returning(withOtherPeopleForPerson(person.ownerId))
-      .executeTakeFirstOrThrow();
+    return (
+      this.db
+        .updateTable('person')
+        .set(person)
+        .where('person.ownerId', '=', person.ownerId)
+        //.where((eb) => hasPersonAccess(eb, person.ownerId))
+        .where('person.personGroupId', '=', person.personGroupId)
+        .returningAll()
+        .returning(withOtherPeopleForPerson(person.ownerId))
+        .executeTakeFirstOrThrow()
+    );
   }
 
   @GenerateSql({ params: [{ userId: DummyValue.UUID, personGroupId: DummyValue.UUID }, { name: DummyValue.STRING }] })

@@ -32,14 +32,17 @@ export class AlbumService extends BaseService {
     const viewers = await this.viewerRepository.getByUserId(ownerId);
     for (const v of viewers) {
       const lib = await this.libraryRepository.get(v.libraryId);
-      const user = mapUser(await findOrFail(() => this.userRepository.get(ownerId, { withDeleted: false }), 'User'));
-      const thumbId = await this.assetRepository.getLatestImageIdByLibraryId(lib!.id);
+      if (!lib) continue;
+      const user = mapUser(
+        await findOrFail(() => this.userRepository.get(lib.ownerId, { withDeleted: false }), 'User'),
+      );
+      const thumbId = await this.assetRepository.getLatestImageIdByLibraryId(lib.id);
       albums.push({
-        albumName: lib!.name,
+        albumName: lib.name,
         id: v.libraryId, //TODO: WHICH ID TO USE
         description: null,
-        createdAt: lib!.createdAt,
-        updatedAt: lib!.updatedAt,
+        createdAt: lib.createdAt,
+        updatedAt: lib.updatedAt,
         albumThumbnailAssetId: v.albumThumbnailAssetId ?? thumbId ?? null,
         albumUsers: [
           {

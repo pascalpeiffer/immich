@@ -307,7 +307,11 @@ export function personInViewedLibrary(eb: ExpressionBuilder<DB, 'person'>, userI
       .select(sql.lit(1).as('exists'))
       .whereRef('person.ownerId', '=', 'library.ownerId')
       .innerJoin('viewer', 'library.id', 'viewer.libraryId')
+
+      //.innerJoin('asset', 'asset.libraryId', 'library.id')
+      //.innerJoin('asset_face', 'asset_face.assetId', 'asset.id')
       //.whereRef('asset_face.personGroupId', '=', 'person.personGroupId') // outer person
+
       .where('viewer.userId', '=', userId)
       .limit(1),
   );
