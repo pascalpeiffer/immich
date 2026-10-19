@@ -35,6 +35,7 @@
     AssetVisibility,
     getPerson,
     getTagById,
+    getViewerLibraries,
     type MetadataSearchDto,
     searchAssets,
     searchSmart,
@@ -184,6 +185,7 @@
       model: $t('camera_model'),
       lensModel: $t('lens_model'),
       personIds: $t('people'),
+      libraryIds: $t('library'),
       tagIds: $t('tags'),
       originalFileName: $t('file_name_text'),
       originalPath: $t('full_path_or_folder'),
@@ -192,6 +194,12 @@
       ocr: $t('ocr'),
     };
     return keyMap[key] || key;
+  }
+
+  async function getLibraryName(libraryId: string[]) {
+    const libraries = await getViewerLibraries();
+    const libraryNames = libraries.filter((l) => libraryId.includes(l.id)).map((l) => l.name);
+    return libraryNames.join(', ');
   }
 
   async function getPersonName(personIds: string[]) {
@@ -273,6 +281,10 @@
               {:else if searchKey === 'personIds' && Array.isArray(value)}
                 {#await getPersonName(value) then personName}
                   {personName}
+                {/await}
+              {:else if searchKey === 'libraryIds' && Array.isArray(value)}
+                {#await getLibraryName(value) then libraryName}
+                  {libraryName}
                 {/await}
               {:else if searchKey === 'tagIds' && (Array.isArray(value) || value === null)}
                 {#await getTagNames(value) then tagNames}

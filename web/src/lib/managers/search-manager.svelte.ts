@@ -94,6 +94,7 @@ class SearchManager {
           : searchQuery.type === AssetTypeEnum.Video
             ? MediaType.Video
             : MediaType.All,
+      libraryIds: new SvelteSet('libraryIds' in searchQuery ? searchQuery.libraryIds : []),
       rating: searchQuery.rating,
     };
   }
@@ -133,6 +134,7 @@ class SearchManager {
       personIds: this.filter.personIds.size > 0 ? [...this.filter.personIds] : undefined,
       tagIds: this.filter.tagIds === null ? null : this.filter.tagIds.size > 0 ? [...this.filter.tagIds] : undefined,
       type,
+      libraryIds: this.filter.libraryIds.size > 0 ? [...this.filter.libraryIds] : undefined,
       rating: this.filter.rating,
     };
   }

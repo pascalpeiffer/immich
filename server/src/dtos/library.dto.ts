@@ -74,6 +74,10 @@ const LibraryResponseSchema = z
   })
   .meta({ id: 'LibraryResponseDto' });
 
+const LibraryWithAssetResponseSchema = LibraryResponseSchema.extend({
+  thumbnailAssetId: z.uuidv4().optional().describe('Thumbnail AssetId'),
+}).meta({ id: 'LibraryWithAssetResponseDto' });
+
 const LibraryStatsResponseSchema = z
   .object({
     photos: z.int().describe('Number of photos'),
@@ -89,6 +93,7 @@ export class ValidateLibraryDto extends createZodDto(ValidateLibrarySchema) {}
 export class ValidateLibraryResponseDto extends createZodDto(ValidateLibraryResponseSchema) {}
 export class ValidateLibraryImportPathResponseDto extends createZodDto(ValidateLibraryImportPathResponseSchema) {}
 export class LibraryResponseDto extends createZodDto(LibraryResponseSchema) {}
+export class LibraryWithAssetResponseDto extends createZodDto(LibraryWithAssetResponseSchema) {}
 export class LibraryStatsResponseDto extends createZodDto(LibraryStatsResponseSchema) {}
 
 export function mapLibrary(entity: Library): LibraryResponseDto {

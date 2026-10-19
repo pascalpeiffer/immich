@@ -2431,6 +2431,8 @@ export type MetadataSearchDto = {
     lensModel?: string | null;
     /** Library ID to filter by */
     libraryId?: string | null;
+    /** Filter by library IDs */
+    libraryIds?: string[];
     /** Filter by camera make */
     make?: string | null;
     /** Filter by camera model */
@@ -3233,6 +3235,28 @@ export type ViewerCreateDto = {
     libraryId: string;
     /** User ID */
     userId: string;
+};
+export type LibraryWithAssetResponseDto = {
+    /** Number of assets */
+    assetCount: number;
+    /** Creation date */
+    createdAt: string;
+    /** Exclusion patterns */
+    exclusionPatterns: string[];
+    /** Library ID */
+    id: string;
+    /** Import paths */
+    importPaths: string[];
+    /** Library name */
+    name: string;
+    /** Owner user ID */
+    ownerId: string;
+    /** Last refresh date */
+    refreshedAt: string | null;
+    /** Thumbnail AssetId */
+    thumbnailAssetId?: string;
+    /** Last update date */
+    updatedAt: string;
 };
 export type ViewerUpdateDto = {
     /** Delete permission */
@@ -7881,6 +7905,17 @@ export function createViewer({ viewerCreateDto }: {
         method: "POST",
         body: viewerCreateDto
     })));
+}
+/**
+ * Get all viewer libraries
+ */
+export function getViewerLibraries(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: LibraryWithAssetResponseDto[];
+    }>("/viewer/libraries", {
+        ...opts
+    }));
 }
 /**
  * Delete an viewer

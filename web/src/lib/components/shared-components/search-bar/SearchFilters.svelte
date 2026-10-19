@@ -9,13 +9,19 @@
     mdiChevronDown,
     mdiChevronUp,
     mdiImage,
+    mdiImageMultiple,
     mdiMagnify,
     mdiMapMarker,
     mdiTagMultiple,
     mdiTune,
   } from '@mdi/js';
   import SearchLocationSection from './SearchLocationSection.svelte';
-  import { getAllTags, type PersonResponseDto, type TagResponseDto } from '@immich/sdk';
+  import {
+    getAllTags,
+    type LibraryWithAssetResponseDto,
+    type PersonResponseDto,
+    type TagResponseDto,
+  } from '@immich/sdk';
   import SearchMediaSection from './SearchMediaSection.svelte';
   import SearchCameraSection from './SearchCameraSection.svelte';
   import SearchDateSection from './SearchDateSection.svelte';
@@ -29,6 +35,7 @@
     getPeople,
     getSearchDatePreset,
     getSearchDateTitle,
+    getSearchLibraryTitle,
     getSearchMediaTitle,
     getSearchPeopleTitle,
     getSearchPlacesTitle,
@@ -38,6 +45,7 @@
   import { onMount } from 'svelte';
   import { searchManager } from '$lib/managers/search-manager.svelte';
   import SearchButton from './SearchButton.svelte';
+  import SearchLibrarySection from '$lib/components/shared-components/search-bar/SearchLibrarySection.svelte';
 
   interface Props {
     id: string;
@@ -64,12 +72,15 @@
   let activeFilter = $state('type');
   let showAdvanced = $state(false);
   let peoplePromise = $state<Promise<PersonResponseDto[]>>();
+  let libraryPromise = $state<Promise<LibraryWithAssetResponseDto[]>>();
   let people = $state<PersonResponseDto[]>();
+  let libraries = $state<LibraryWithAssetResponseDto[]>();
   let tagsPromise = $state<Promise<TagResponseDto[]>>();
   let tags = $state<TagResponseDto[]>();
 
   let typeTitle = $derived(getSearchTypeTitle(searchManager.filter.queryType));
   let peopleTitle = $state<string>();
+  let libraryTitle = $state<string>();
   let dateTitle = $derived(
     getSearchDateTitle(
       getSearchDatePreset(searchManager.filter.date.takenAfter, searchManager.filter.date.takenBefore),
@@ -128,6 +139,12 @@
       title: $t('media'),
       activeTitle: () => mediaTitle,
     },
+    {
+      name: 'library',
+      icon: mdiImageMultiple,
+      title: $t('library'),
+      activeTitle: () => libraryTitle,
+    },
   ];
 
   const advancedFiltersSet = $derived(
@@ -139,7 +156,7 @@
 
   const clear = () => {
     searchManager.reset();
-    peopleTitle = tagsTitle = undefined;
+    peopleTitle = libraryTitle = tagsTitle = undefined;
   };
 
   onMount(() => {
@@ -165,6 +182,12 @@
       tagsTitle = $t('untagged');
     } else if (tags) {
       tagsTitle = getSearchTagsTitle(tags, searchManager.filter.tagIds);
+    }
+  });
+
+  $effect(() => {
+    if (libraries) {
+      libraryTitle = getSearchLibraryTitle(libraries, searchManager.filter.libraryIds);
     }
   });
 
@@ -229,6 +252,8 @@
             <SearchTagsSection bind:title={tagsTitle} parentPromise={tagsPromise} />
           {:else if activeFilter === 'media'}
             <SearchMediaSection />
+          {:else if activeFilter === 'library'}
+            <SearchLibrarySection bind:title={libraryTitle} parentPromise={libraryPromise} />
           {/if}
         </div>
       {/if}

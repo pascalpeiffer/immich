@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { MaybeDuplicate } from 'src/dtos/activity.dto.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
+import { LibraryResponseDto, LibraryWithAssetResponseDto, mapLibrary } from 'src/dtos/library.dto.js';
 import { ViewerCreateDto, ViewerResponseDto, ViewerUpdateDto, mapViewer } from 'src/dtos/viewer.dto.js';
 import { Permission } from 'src/enum.js';
 import { BaseService } from 'src/services/base.service.js';
@@ -17,6 +18,21 @@ export class ViewerService extends BaseService {
     viewerResponseDtos = viewerResponseDtos.filter((viewer) => allowedLibraryIds.has(viewer.id));
 
     return viewerResponseDtos;
+  }
+
+  async getAllViewerLibraries(auth: AuthDto): Promise<LibraryWithAssetResponseDto[]> {
+    const allViewerEntries: ViewerResponseDto[] = await this.viewerRepository.getAll();
+    const userLibraryIds = new Set(allViewerEntries.filter((v) => v.userId === auth.user.id).map((v) => v.libraryId));
+    const allLibraries = await this.libraryRepository.getAll();
+    const libs: LibraryWithAssetResponseDto[] = allLibraries
+      .filter((l) => userLibraryIds.has(l.id))
+      .map((l) => mapLibrary(l));
+    for (let i = 0; i < libs.length; i++) {
+      const viewerEntry = await this.viewerRepository.getByLibraryAndUserId(libs[i].id, auth.user.id);
+      const thumbId = await this.assetRepository.getLatestImageIdByLibraryId(libs[i].id);
+      libs[i].thumbnailAssetId = viewerEntry?.albumThumbnailAssetId ?? thumbId ?? undefined;
+    }
+    return libs;
   }
 
   async getByLibraryID(auth: AuthDto, libraryId: string): Promise<ViewerResponseDto[]> {

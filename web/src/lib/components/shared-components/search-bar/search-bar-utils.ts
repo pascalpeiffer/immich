@@ -1,4 +1,4 @@
-import { getAllPeople, type PersonResponseDto, type TagResponseDto } from '@immich/sdk';
+import { getViewerLibraries, getAllPeople, type PersonResponseDto, type TagResponseDto, type LibraryWithAssetResponseDto } from '@immich/sdk';
 import { DateTime } from 'luxon';
 import { t } from 'svelte-i18n';
 import type { SvelteSet } from 'svelte/reactivity';
@@ -162,6 +162,33 @@ export const getSearchPeopleTitle = (people: PersonResponseDto[], selected: Svel
   }
 
   return $t('people_count', { values: { count: selected.size } });
+};
+
+export const getLibrary = async (selected: SvelteSet<string>): Promise<LibraryWithAssetResponseDto[]> => {
+  const $t = get(t);
+  try {
+    const res = await getViewerLibraries();
+    res.sort((a, b) => (selected.has(a.id) ? -1 : selected.has(b.id) ? 1 : 0));
+    return res;
+  } catch (error) {
+    handleError(error, $t('errors.failed_to_get_libraries'));
+  }
+  return [];
+};
+
+export const getSearchLibraryTitle = (libraries: LibraryWithAssetResponseDto[], selected: SvelteSet<string>) => {
+  if (selected.size === 0) {
+    return;
+  }
+
+  const $t = get(t);
+
+  const name = libraries.find(({ id, name }) => name && selected.has(id))?.name;
+  if (name) {
+    return selected.size === 1 ? name : $t('name_plus_more_libraries', { values: { name, count: selected.size - 1 } });
+  }
+
+  return $t('library_count', { values: { count: selected.size } });
 };
 
 export const getSearchTagsTitle = (tags: TagResponseDto[], selected: SvelteSet<string>) => {

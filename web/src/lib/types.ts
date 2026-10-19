@@ -73,6 +73,7 @@ export type SearchFilter = {
   date: SearchDateFilter;
   display: SearchDisplayFilters;
   mediaType: MediaType;
+  libraryIds: SvelteSet<string>;
   rating?: number | null;
 };
 

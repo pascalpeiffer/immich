@@ -518,6 +518,7 @@ export function searchAssetBuilderLegacy(kysely: Kysely<DB>, options: AssetSearc
     kysely
       .withPlugin(joinDeduplicationPlugin)
       .selectFrom('asset')
+      .$if(options.libraryIds !== undefined, (qb) => qb.where('asset.libraryId', 'in', options.libraryIds!))
       .leftJoinLateral(
         (eb) =>
           eb

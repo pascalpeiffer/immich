@@ -376,6 +376,7 @@ const MetadataSearchSchema = withShapeExclusivity(
     order: AssetOrderSchema.optional().describe('Sort order').meta(DEPRECATED_FLAT_FIELD),
     page: z.int().min(1).optional().describe('Page number').meta(DEPRECATED_FLAT_FIELD),
     orderBy: SearchOrderSchema.optional().meta(ADDED_V3_2),
+    libraryIds: z.array(z.uuidv4()).optional().describe('Filter by library IDs').meta(DEPRECATED_FLAT_FIELD),
     cursor: cursorField,
   }),
 ).meta({ id: 'MetadataSearchDto' });

@@ -1,8 +1,9 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Put, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Options, Param, Post, Put, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { Endpoint, HistoryBuilder } from 'src/decorators.js';
+import { LibraryResponseDto, LibraryWithAssetResponseDto } from 'src/dtos/library.dto.js';
 import { ViewerCreateDto, ViewerResponseDto, ViewerUpdateDto } from 'src/dtos/viewer.dto.js';
 import { ApiTag, Permission } from 'src/enum.js';
 import { Auth, Authenticated } from 'src/middleware/auth.guard.js';
@@ -23,6 +24,17 @@ export class ViewerController {
   })
   getViewers(@Auth() auth: AuthDto): Promise<ViewerResponseDto[]> {
     return this.service.getAll(auth);
+  }
+
+  @Get('/libraries')
+  @Authenticated({ permission: Permission.ViewerRead })
+  @Endpoint({
+    summary: 'Get all viewer libraries',
+    description: 'Returns a list of viewer accessible viewers.',
+    history: new HistoryBuilder().added('v3'),
+  })
+  getViewerLibraries(@Auth() auth: AuthDto): Promise<LibraryWithAssetResponseDto[]> {
+    return this.service.getAllViewerLibraries(auth);
   }
 
   @Get(':id')

@@ -133,7 +133,7 @@ type BaseAssetSearchOptions = SearchDateOptions &
   SearchOcrOptions;
 
 export type AssetSearchOptions = Omit<BaseAssetSearchOptions, 'visibility'> &
-  SearchRelationOptions & { visibility?: AssetVisibility | 'not-locked' };
+  SearchRelationOptions & { visibility?: AssetVisibility | 'not-locked'; libraryIds?: string[] };
 
 export type AssetSearchBuilderOptions = Omit<AssetSearchOptions, 'orderDirection'>;
 
