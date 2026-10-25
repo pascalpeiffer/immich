@@ -13,6 +13,7 @@ import {
   Selectable,
   ShallowDehydrateObject,
   SqlBool,
+  expressionBuilder,
   sql,
 } from 'kysely';
 import { jsonArrayFrom, jsonObjectFrom } from 'kysely/helpers/postgres';
@@ -300,7 +301,7 @@ export function isPersonOwner(eb: ExpressionBuilder<DB, 'person'>, userIds: stri
 }
 
 export function personInViewedLibrary(eb: ExpressionBuilder<DB, 'person'>, userId: string) {
-  //TODO show all users from owner or only library relevant -> for face editing it might be usefull to have access to all people
+  //TODO show all users from owner or only library relevant -> for face editing it might be usefull to have access to all people -> also check with access.repository.ts#checkViewerAccess
   return eb.exists(
     eb
       .selectFrom('library')

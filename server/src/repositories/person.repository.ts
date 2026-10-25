@@ -1,11 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import {
-  type Expression,
   type ExpressionBuilder,
   type Insertable,
   type Kysely,
-  type Selectable,
-  type ShallowDehydrateObject,
   type SqlBool,
   type Updateable,
   expressionBuilder,
@@ -16,7 +13,7 @@ import { InjectKysely } from 'nestjs-kysely';
 import { AssetFace, PersonUser, columns } from 'src/database.js';
 import { Chunked, ChunkedArray, DummyValue, GenerateSql } from 'src/decorators.js';
 import { PersonUserRole } from 'src/dtos/person.dto.js';
-import { AssetFileType, AssetVisibility, SharingDirection, SourceType, UserMetadataKey } from 'src/enum.js';
+import { AssetFileType, AssetVisibility, SourceType, UserMetadataKey } from 'src/enum.js';
 import { type YearMonthDay } from 'src/repositories/asset.repository.js';
 import { DB } from 'src/schema/index.js';
 import { AssetFaceTable } from 'src/schema/tables/asset-face.table.js';
@@ -35,13 +32,6 @@ import {
 import { isLeapDayObserved } from 'src/utils/date.js';
 import { type PaginationOptions, paginationHelper } from 'src/utils/pagination.js';
 
-type PersonGroupRow = {
-  ownedPerson: ShallowDehydrateObject<Selectable<PersonTable>>;
-  otherPeople: { sharedById: string; role: PersonUserRole; name: string; birthDate: string | null }[];
-  sharedBy: PersonUser[];
-  sharedWith: PersonUser[];
-};
-
 export interface PersonFilterOptions {
   sharedById?: string;
   sharedWithId?: string;
@@ -50,13 +40,12 @@ export interface PersonFilterOptions {
   name?: string;
 }
 
-export interface PersonCountOptions extends PersonFilterOptions {
+export interface PersonSearchOptions extends PersonFilterOptions {
   partnerIds: string[];
-}
-
-export interface PersonSearchOptions extends PersonCountOptions {
   withHidden: boolean;
   closestFaceAssetId?: string;
+  /** order by similarity to this person's face instead; takes precedence over closestFaceAssetId */
+  closestPersonId?: string;
 }
 
 export interface PersonNameSearchOptions {
@@ -122,25 +111,9 @@ export type WithPersonOptions = {
   viewingUserId: string;
 };
 
-const withOwnedPerson = (userId: string) => {
-  return (eb: ExpressionBuilder<DB, 'person_group'>) =>
-    jsonObjectFrom(
-      eb
-        .selectFrom('person')
-        .selectAll('person')
-        .whereRef('person.personGroupId', '=', 'person_group.id')
-        .where((eb) => hasPersonAccess(eb, userId))
-        .orderBy((eb) => eb('person.ownerId', '=', userId), 'asc') // prefer shared person
-        .orderBy('person.ownerId') // stable tiebreak
-        .limit(1),
-    )
-      .$notNull()
-      .as('ownedPerson');
-};
-
-const withOtherPeopleFor = (userId: string, personGroupId: Expression<string>) =>
+const withSharing = (userId: string) => (eb: ExpressionBuilder<DB, 'person'>) => [
   jsonArrayFrom(
-    expressionBuilder<DB>()
+    eb
       .selectFrom('person as other')
       .innerJoin('person_user', (join) =>
         join
@@ -149,91 +122,57 @@ const withOtherPeopleFor = (userId: string, personGroupId: Expression<string>) =
           .on('person_user.sharedWithId', '=', userId),
       )
       .select(['person_user.sharedById', 'person_user.role', 'other.name', 'other.birthDate'])
-      .where('other.personGroupId', '=', personGroupId),
-  ).as('otherPeople');
-
-const withPersonUsersFor = (userId: string, personGroupId: Expression<string>, direction: SharingDirection) => {
-  const [userColumn, viewerColumn] =
-    direction === SharingDirection.SharedBy
-      ? (['person_user.sharedById', 'person_user.sharedWithId'] as const)
-      : (['person_user.sharedWithId', 'person_user.sharedById'] as const);
-
-  return jsonArrayFrom(
-    expressionBuilder<DB>()
+      .whereRef('other.personGroupId', '=', 'person.personGroupId'),
+  ).as('otherPeople'),
+  jsonArrayFrom(
+    eb
       .selectFrom('person_user')
-      .innerJoin('user', (join) => join.onRef('user.id', '=', userColumn).on('user.deletedAt', 'is', null))
+      .innerJoin('user', (join) =>
+        join.onRef('user.id', '=', 'person_user.sharedById').on('user.deletedAt', 'is', null),
+      )
       .select(columns.user)
       .select('person_user.role')
-      .where('person_user.personGroupId', '=', personGroupId)
-      .where(viewerColumn, '=', userId)
+      .whereRef('person_user.personGroupId', '=', 'person.personGroupId')
+      .where('person_user.sharedWithId', '=', userId)
       .orderBy('user.name'),
   )
     .$castTo<PersonUser[]>()
-    .as(direction === SharingDirection.SharedBy ? 'sharedBy' : 'sharedWith');
-};
-
-const withSharing = (userId: string, personGroupId: Expression<string>) => [
-  withOtherPeopleFor(userId, personGroupId),
-  withPersonUsersFor(userId, personGroupId, SharingDirection.SharedBy),
-  withPersonUsersFor(userId, personGroupId, SharingDirection.SharedWith),
+    .as('sharedBy'),
+  jsonArrayFrom(
+    eb
+      .selectFrom('person_user')
+      .innerJoin('user', (join) =>
+        join.onRef('user.id', '=', 'person_user.sharedWithId').on('user.deletedAt', 'is', null),
+      )
+      .select(columns.user)
+      .select('person_user.role')
+      .whereRef('person_user.personGroupId', '=', 'person.personGroupId')
+      .where('person_user.sharedById', '=', userId)
+      .orderBy('user.name'),
+  )
+    .$castTo<PersonUser[]>()
+    .as('sharedWith'),
 ];
 
-const withOtherPeople = (userId: string) => {
-  return (eb: ExpressionBuilder<DB, 'person_group'>) => withSharing(userId, eb.ref('person_group.id'));
-};
+// computing the operand as an initplan sets the threshold first while the index can still be used
+const unaccentWithThreshold = (name: string) =>
+  sql<string>`(select f_unaccent(${name}) where set_config('pg_trgm.word_similarity_threshold', '0.5', true) is not null)`;
 
-const withOtherPeopleForPerson = (userId: string) => {
-  return (eb: ExpressionBuilder<DB, 'person'>) => withSharing(userId, eb.ref('person.personGroupId'));
-};
+const { fn, lit, selectFrom } = expressionBuilder<DB>();
+const minimumFaces = (userId: string) =>
+  fn.coalesce(
+    selectFrom('user_metadata')
+      .select((eb) => eb.cast<number>(sql`value -> 'people' ->> 'minimumFaces'`, 'integer').as('value'))
+      .where('userId', '=', userId)
+      .where('key', '=', sql.lit(UserMetadataKey.Preferences)),
+    lit(3),
+  );
 
-const withFilters = (userId: string, options: PersonFilterOptions = {}) => {
-  const { sharedById, sharedWithId, isFavorite, isHidden, name } = options;
-  return (
-    eb: ExpressionBuilder<
-      DB & { owned: DB['person']; similarity_threshold: unknown },
-      'person_group' | 'owned' | 'similarity_threshold'
-    >,
-  ) => {
-    const filters: Expression<SqlBool>[] = [];
-
-    if (sharedById || sharedWithId) {
-      filters.push(
-        eb.exists(
-          eb
-            .selectFrom('person_user')
-            .whereRef('person_user.personGroupId', '=', 'person_group.id')
-            // only consider shares that involve the current user
-            .where((eb) =>
-              eb.or([eb('person_user.sharedById', '=', userId), eb('person_user.sharedWithId', '=', userId)]),
-            )
-            .$if(!!sharedById, (qb) => qb.where('person_user.sharedById', '=', sharedById!))
-            .$if(!!sharedWithId, (qb) => qb.where('person_user.sharedWithId', '=', sharedWithId!)),
-        ),
-      );
-    }
-
-    if (isFavorite !== undefined) {
-      filters.push(eb('owned.isFavorite', '=', isFavorite));
-    }
-
-    if (isHidden !== undefined) {
-      filters.push(eb('owned.isHidden', '=', isHidden));
-    }
-
-    if (name !== undefined) {
-      filters.push(sql`f_unaccent("owned"."name") %> f_unaccent(${name})`);
-    }
-
-    return eb.and(filters);
-  };
-};
-
-const asPerson = ({ ownedPerson, otherPeople, sharedBy, sharedWith }: PersonGroupRow) => ({
-  ...ownedPerson,
-  otherPeople,
-  sharedBy,
-  sharedWith,
-});
+const visibleFaces = selectFrom('asset_face')
+  .where('asset_face.deletedAt', 'is', null)
+  .where('asset_face.isVisible', 'is', true)
+  .where('asset_face.assetVisibility', '=', sql.lit(AssetVisibility.Timeline))
+  .where('asset_face.assetDeletedAt', 'is', null);
 
 const withPerson = ({ viewingUserId }: WithPersonOptions) => {
   return (eb: ExpressionBuilder<DB, 'asset_face'>) =>
@@ -241,7 +180,7 @@ const withPerson = ({ viewingUserId }: WithPersonOptions) => {
       eb
         .selectFrom('person')
         .selectAll('person')
-        .select(withOtherPeopleForPerson(viewingUserId))
+        .select(withSharing(viewingUserId))
         .whereRef('person.personGroupId', '=', 'asset_face.personGroupId')
         .where((eb) => hasPersonAccess(eb, viewingUserId))
         .orderBy((eb) => eb('person.ownerId', '=', viewingUserId), 'asc')
@@ -451,135 +390,124 @@ export class PersonRepository {
       .execute();
   }
 
-  private getVisiblePeopleQuery(userId: string, partnerIds: string[]) {
-    return (
-      this.db
-        .with('similarity_threshold', (db) =>
-          db.selectNoFrom(sql`set_config('pg_trgm.word_similarity_threshold', '0.5', true)`.as('thresh')),
-        )
-        .selectFrom(['similarity_threshold', 'person_group'])
-        // exactly one accessible person per group: the caller's own if present, otherwise a stable pick
-        .innerJoinLateral(
-          (eb) =>
-            eb
-              .selectFrom('person')
-              .selectAll('person')
-              .whereRef('person.personGroupId', '=', 'person_group.id')
-              .where((eb) => hasPersonAccess(eb, userId))
-              .orderBy((eb) => eb('person.ownerId', '=', userId), 'asc')
-              .orderBy('person.ownerId')
-              .limit(1)
-              .as('owned'),
-          (join) => join.onTrue(),
-        )
-        .innerJoin(
-          (eb) =>
-            eb
-              .selectFrom('asset_face')
-              .innerJoin('asset', (join) =>
-                join
-                  .onRef('asset.id', '=', 'asset_face.assetId')
-                  .on('asset.visibility', '=', sql.lit(AssetVisibility.Timeline))
-                  .on('asset.deletedAt', 'is', null)
-                  .on((eb) =>
-                    eb.or([eb('asset.ownerId', '=', anyUuid([userId, ...partnerIds])), hasAssetAccess(eb, [userId])]),
-                  ),
-              )
-              .select('asset_face.personGroupId')
-              .select((eb) => eb.fn.count<number>('asset.id').as('faceCount'))
-              // an array instead of a join or `in`, which the planner may turn into a scan of every face in the instance
-              .where('asset_face.personGroupId', '=', (eb) => {
-                const ownedGroupIds = eb
-                  .selectFrom('person')
-                  .select('person.personGroupId')
-                  .where((eb) => hasPersonAccess(eb, userId));
-                return eb.fn.any(eb.fn<string[]>('array', [ownedGroupIds]));
-              })
-              .where('asset_face.deletedAt', 'is', null)
-              .where('asset_face.isVisible', 'is', true)
-              .groupBy('asset_face.personGroupId')
-              .as('faces'),
-          (join) => join.onRef('faces.personGroupId', '=', 'person_group.id'),
-        )
-        .where((eb) =>
-          eb.or([
-            eb('owned.name', '!=', ''),
-            eb(
-              'faces.faceCount',
-              '>=',
-              sql<number>`COALESCE(
-            (SELECT value -> 'people' ->> 'minimumFaces'
-            FROM user_metadata
-            WHERE "userId" = ${userId}
-              AND key = ${sql.lit(UserMetadataKey.Preferences)}),
-            '3'
-          )::int `,
-            ),
-          ]),
-        )
-    );
-  }
-
-  @GenerateSql({
-    params: [{ take: 1, skip: 0 }, DummyValue.UUID, { withHidden: false, partnerIds: [DummyValue.UUID] }],
-  })
+  @GenerateSql(
+    { params: [{ take: 1, skip: 0 }, DummyValue.UUID, { withHidden: false, partnerIds: [DummyValue.UUID] }] },
+    {
+      name: 'closest person',
+      params: [
+        { take: 1, skip: 0 },
+        DummyValue.UUID,
+        { withHidden: false, partnerIds: [], closestPersonId: DummyValue.UUID },
+      ],
+    },
+  )
   async getAllForUser(pagination: PaginationOptions, userId: string, options: PersonSearchOptions) {
-    const items = await this.getVisiblePeopleQuery(userId, options.partnerIds)
-      .select(withOwnedPerson(userId))
-      .select(withOtherPeople(userId))
-      .orderBy('owned.isHidden', 'asc')
-      .orderBy('owned.isFavorite', 'desc')
-      .$if(!!options.closestFaceAssetId, (qb) =>
-        qb.orderBy((eb) =>
-          eb(
-            (eb) =>
-              eb
-                .selectFrom('face_search')
-                .innerJoin('asset_face', 'asset_face.id', 'face_search.faceId')
-                .innerJoin('asset', 'asset.id', 'asset_face.assetId')
-                .where((eb) => hasAssetAccess(eb, [userId]))
-                .select('face_search.embedding')
-                .whereRef('face_search.faceId', '=', 'owned.faceAssetId'),
-            '<=>',
-            (eb) =>
-              eb
-                .selectFrom('face_search')
-                .innerJoin('asset_face', 'asset_face.id', 'face_search.faceId')
-                .innerJoin('asset', 'asset.id', 'asset_face.assetId')
-                .where((eb) => hasAssetAccess(eb, [userId]))
-                .select('face_search.embedding')
-                .where('face_search.faceId', '=', options.closestFaceAssetId!),
-          ),
-        ),
-      )
-      .$if(!options.closestFaceAssetId, (qb) =>
-        qb
-          .orderBy(sql`NULLIF("owned"."name", '') is null`, 'asc')
-          .orderBy(
-            (eb) =>
-              eb
-                .selectFrom('asset_face')
-                .innerJoin('asset', 'asset.id', 'asset_face.assetId')
-                .whereRef('asset_face.personGroupId', '=', 'owned.personGroupId') // correlate to outer row
-                .where((eb) => hasAssetAccess(eb, [userId]))
-                .select((eb) => eb.fn.countAll().as('count')),
-            'desc',
-          )
-          .orderBy(sql`NULLIF("owned"."name", '')`, (om) => om.asc().nullsLast())
-          .orderBy('owned.createdAt'),
-      )
-      // an explicit isHidden filter takes precedence over withHidden
-      .$if(!options.withHidden && options.isHidden === undefined, (qb) => qb.where('owned.isHidden', '=', false))
-      .where(withFilters(userId, options))
-      .$if(!!options.name, (qb) => qb.orderBy(sql`f_unaccent("owned"."name") <->>> f_unaccent(${options.name!})`))
-      .offset(pagination.skip ?? 0)
-      .limit(pagination.take + 1)
-      .execute();
+    const ownerIds = anyUuid([userId, ...options.partnerIds]);
 
-    return paginationHelper(
-      items.map((item) => asPerson(item)),
-      pagination.take,
-    );
+    const { people, total, hidden } = await this.db
+      // exactly one accessible person per group: the shared one if present, otherwise a stable pick
+      .with(
+        'owned',
+        (db) =>
+          db
+            .selectFrom('person')
+            .distinctOn('person.personGroupId')
+            .selectAll('person')
+            .where((eb) => hasPersonAccess(eb, userId))
+            .orderBy('person.personGroupId')
+            .orderBy((eb) => eb('person.ownerId', '=', userId), 'asc') // prefer shared person
+            .orderBy('person.ownerId'), // stable tiebreak
+      )
+      .with('faces', (db) =>
+        visibleFaces
+          .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+          .where((eb) => eb.or([eb('asset.ownerId', '=', ownerIds), hasAssetAccess(eb, [userId])]))
+          // an array instead of a join or `in`, which the planner may turn into a scan of every face in the instance
+          .where('asset_face.personGroupId', '=', (eb) =>
+            eb.fn.any(eb.fn<string[]>('array', [eb.selectFrom('person').select('person.personGroupId')])),
+          )
+          .select('asset_face.personGroupId')
+          .select((eb) => eb.fn.countAll<number>().as('faceCount'))
+          .groupBy('asset_face.personGroupId'),
+      )
+      .with('people', (db) =>
+        db
+          .selectFrom('owned as person')
+          .innerJoin('faces', 'faces.personGroupId', 'person.personGroupId')
+          .selectAll('person')
+          .select('faces.faceCount')
+          .where((eb) => eb.or([eb('person.name', '!=', ''), eb('faces.faceCount', '>=', minimumFaces(userId))]))
+          .$if(!!options.sharedById || !!options.sharedWithId, (qb) =>
+            qb.where((eb) =>
+              eb.exists(
+                eb
+                  .selectFrom('person_user')
+                  .whereRef('person_user.personGroupId', '=', 'person.personGroupId')
+                  .where((eb) =>
+                    eb.or([eb('person_user.sharedById', '=', userId), eb('person_user.sharedWithId', '=', userId)]),
+                  )
+                  .$if(!!options.sharedById, (qb) => qb.where('person_user.sharedById', '=', options.sharedById!))
+                  .$if(!!options.sharedWithId, (qb) =>
+                    qb.where('person_user.sharedWithId', '=', options.sharedWithId!),
+                  ),
+              ),
+            ),
+          )
+          .$if(options.isFavorite !== undefined, (qb) => qb.where('person.isFavorite', '=', options.isFavorite!))
+          .$if(options.isHidden !== undefined, (qb) => qb.where('person.isHidden', '=', options.isHidden!))
+          .$if(options.name !== undefined, (qb) =>
+            qb.where(sql<SqlBool>`f_unaccent("person"."name") %> ${unaccentWithThreshold(options.name!)}`),
+          ),
+      )
+      .with('page', (db) =>
+        db
+          .selectFrom('people')
+          .selectAll('people')
+          .$if(!options.withHidden && options.isHidden === undefined, (qb) => qb.where('people.isHidden', '=', false))
+          .orderBy('people.isHidden', 'asc')
+          .orderBy('people.isFavorite', 'desc')
+          .$if(!!options.closestPersonId || !!options.closestFaceAssetId, (qb) =>
+            qb.orderBy((eb) => {
+              const embedding = eb.selectFrom('face_search').select('face_search.embedding');
+              return eb(
+                embedding.whereRef('face_search.faceId', '=', 'people.faceAssetId'),
+                '<=>',
+                options.closestPersonId
+                  ? // `owned` has one row per group, so this resolves to a single face
+                    embedding.where('face_search.faceId', '=', (eb) =>
+                      eb
+                        .selectFrom('owned')
+                        .select('owned.faceAssetId')
+                        .where('owned.personGroupId', '=', options.closestPersonId!),
+                    )
+                  : embedding.where('face_search.faceId', '=', options.closestFaceAssetId!),
+              );
+            }),
+          )
+          .orderBy((eb) => eb('people.name', '=', sql.lit('')))
+          .orderBy('people.faceCount', 'desc')
+          .orderBy('people.name')
+          .orderBy('people.createdAt')
+          .orderBy('people.personGroupId')
+          .offset(pagination.skip ?? 0)
+          .limit(pagination.take + 1),
+      )
+      .selectFrom((eb) =>
+        eb
+          .selectFrom('people')
+          .select((eb) => [
+            eb.fn.countAll<number>().as('total'),
+            eb.fn.countAll<number>().filterWhere('people.isHidden', '=', true).as('hidden'),
+          ])
+          .as('counts'),
+      )
+      .select(['counts.total', 'counts.hidden'])
+      .select((eb) =>
+        jsonArrayFrom(eb.selectFrom('page as person').selectAll('person').select(withSharing(userId))).as('people'),
+      )
+      .executeTakeFirstOrThrow();
+
+    return { ...paginationHelper(people, pagination.take), total, hidden };
   }
 
   @GenerateSql()
@@ -679,39 +607,16 @@ export class PersonRepository {
     return Number(result.numChangedRows ?? 0);
   }
 
-  @GenerateSql({ params: [{ userId: DummyValue.UUID, personGroupId: DummyValue.UUID }] })
-  async getForUser({ userId, personGroupId }: { userId: string; personGroupId: string }) {
-    const group = await this.db
-      .selectFrom('person_group')
-      .select(withOwnedPerson(userId))
-      .select(withOtherPeople(userId))
-      .where('person_group.id', '=', personGroupId)
-      .where((eb) =>
-        eb.exists(
-          eb
-            .selectFrom('person')
-            .select('person.ownerId')
-            .whereRef('person.personGroupId', '=', 'person_group.id')
-            .orderBy((eb) => eb('person.ownerId', '=', userId), 'asc')
-            .where((eb) => hasPersonAccess(eb, userId)),
-          //.where('person.ownerId', '=', userId),
-        ),
-      )
-      .executeTakeFirst();
-
-    return group && asPerson(group);
-  }
-
   @GenerateSql({ params: [{ ownerId: DummyValue.UUID, personGroupId: DummyValue.UUID }] })
   getByGroupId({ ownerId, personGroupId }: PersonId) {
     return (
       this.db
         .selectFrom('person')
         .selectAll('person')
-        .select(withOtherPeopleForPerson(ownerId))
+        .select(withSharing(ownerId))
         .where('person.personGroupId', '=', personGroupId)
-        .where('person.ownerId', '=', ownerId)
-        //.where((eb) => hasPersonAccess(eb, ownerId))
+        //.where('person.ownerId', '=', ownerId)
+        .where((eb) => hasPersonAccess(eb, ownerId))
         .executeTakeFirst()
     );
   }
@@ -751,13 +656,10 @@ export class PersonRepository {
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.STRING, { withHidden: true }] })
   getByName(userId: string, personName: string, { withHidden }: PersonNameSearchOptions) {
     return this.db
-      .with('similarity_threshold', (db) =>
-        db.selectNoFrom(sql`set_config('pg_trgm.word_similarity_threshold', '0.5', true)`.as('thresh')),
-      )
-      .selectFrom(['similarity_threshold', 'person'])
+      .selectFrom('person')
       .selectAll('person')
       .where((eb) => hasPersonAccess(eb, userId))
-      .select(withOtherPeopleForPerson(userId))
+      .select(withSharing(userId))
       .where(() => sql`f_unaccent("person"."name") %> f_unaccent(${personName})`)
       .orderBy(sql`f_unaccent("person"."name") <->>> f_unaccent(${personName})`)
       .limit(100)
@@ -776,7 +678,7 @@ export class PersonRepository {
       .execute();
   }
 
-  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  @GenerateSql({ params: [DummyValue.UUID, { ownerId: DummyValue.UUID, partnerIds: [DummyValue.UUID] }] })
   async getStatistics(
     personGroupId: string,
     { ownerId, partnerIds }: { ownerId: string; partnerIds: string[] },
@@ -800,29 +702,13 @@ export class PersonRepository {
       assets: result ? Number(result.count) : 0,
     };
   }
-  @GenerateSql({ params: [DummyValue.UUID, { partnerIds: [DummyValue.UUID] }] })
-  getNumberOfPeople(userId: string, options: PersonCountOptions) {
-    const zero = sql.lit(0);
-    return this.db
-      .selectFrom(
-        this.getVisiblePeopleQuery(userId, options.partnerIds)
-          .select('owned.isHidden')
-          .where(withFilters(userId, options))
-          .as('people'),
-      )
-      .select((eb) => eb.fn.coalesce(eb.fn.countAll<number>(), zero).as('total'))
-      .select((eb) =>
-        eb.fn.coalesce(eb.fn.countAll<number>().filterWhere('people.isHidden', '=', true), zero).as('hidden'),
-      )
-      .executeTakeFirstOrThrow();
-  }
 
   create(person: Insertable<PersonTable>) {
     return this.db
       .insertInto('person')
       .values(person)
       .returningAll()
-      .returning(withOtherPeopleForPerson(person.ownerId))
+      .returning(withSharing(person.ownerId))
       .executeTakeFirstOrThrow();
   }
 
@@ -954,12 +840,16 @@ export class PersonRepository {
   ): Promise<void> {
     let query = this.db;
     if (facesToAdd.length > 0) {
-      (query as any) = query.with('added', (db) => db.insertInto('asset_face').values(facesToAdd));
+      (query as any) = query.with('added', (db) => db.insertInto('asset_face').values(facesToAdd).returning('id'));
     }
 
     if (faceIdsToRemove.length > 0) {
       (query as any) = query.with('removed', (db) =>
-        db.deleteFrom('asset_face').where('asset_face.id', '=', (eb) => eb.fn.any(eb.val(faceIdsToRemove))),
+        db
+          .deleteFrom('asset_face')
+          .where('asset_face.id', '=', (eb) => eb.fn.any(eb.val(faceIdsToRemove)))
+          // ensure insert happens first to prevent deadlock on concurrent updates
+          .$if(facesToAdd.length > 0, (qb) => qb.where(sql<SqlBool>`exists (select from added)`)),
       );
     }
 
@@ -971,17 +861,14 @@ export class PersonRepository {
   }
 
   async update(person: Updateable<PersonTable> & PersonId) {
-    return (
-      this.db
-        .updateTable('person')
-        .set(person)
-        .where('person.ownerId', '=', person.ownerId)
-        //.where((eb) => hasPersonAccess(eb, person.ownerId))
-        .where('person.personGroupId', '=', person.personGroupId)
-        .returningAll()
-        .returning(withOtherPeopleForPerson(person.ownerId))
-        .executeTakeFirstOrThrow()
-    );
+    return this.db
+      .updateTable('person')
+      .set(person)
+      .where('person.ownerId', '=', person.ownerId)
+      .where('person.personGroupId', '=', person.personGroupId)
+      .returningAll()
+      .returning(withSharing(person.ownerId))
+      .executeTakeFirstOrThrow();
   }
 
   @GenerateSql({ params: [{ userId: DummyValue.UUID, personGroupId: DummyValue.UUID }, { name: DummyValue.STRING }] })

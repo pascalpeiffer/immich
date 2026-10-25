@@ -727,21 +727,26 @@ class PersonAccess {
       .select('person.personGroupId')
       .where('person.personGroupId', 'in', pgi)
       .where('person.ownerId', 'in', (eb) => {
-        return eb
-          .selectFrom('viewer')
-          .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
-          .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
-          .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
-          .select('asset.ownerId')
-          .$if(!!filter?.del, (qb) => qb.where('viewer.delete', '=', true))
-          .$if(!!filter?.edit, (qb) => qb.where('viewer.edit', '=', true))
-          .where('viewer.userId', '=', userId)
-          .whereRef('asset.libraryId', '=', 'library.id');
+        return (
+          eb
+            .selectFrom('viewer')
+            .innerJoin('library', (join) => join.onRef('viewer.libraryId', '=', 'library.id'))
+            .innerJoin('asset_face', (join) => join.onRef('asset_face.personGroupId', '=', 'person.personGroupId'))
+            .innerJoin('asset', (join) => join.onRef('asset.id', '=', 'asset_face.assetId'))
+            .select('asset.ownerId')
+            .$if(!!filter?.del, (qb) => qb.where('viewer.delete', '=', true))
+            .$if(!!filter?.edit, (qb) => qb.where('viewer.edit', '=', true))
+            .where('viewer.userId', '=', userId)
+            //.whereRef('asset.libraryId', '=', 'library.id')
+            .whereRef('asset.ownerId', '=', 'library.ownerId') //TODO check with database.ts#personInViewedLibrary wether to show all people by the person or only relevant
+        );
       })
       .execute();
 
     // personGroupIds that passed the access check
     const allowed = new Set(rows.map((r) => r.personGroupId));
+
+    console.log(allowed);
 
     // Return the caller's own objects (original ownerId untouched) for the groups that passed
     return new Set<PersonId>(inputs.filter((p) => allowed.has(p.personGroupId)));

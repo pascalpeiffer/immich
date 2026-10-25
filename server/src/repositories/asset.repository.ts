@@ -36,10 +36,8 @@ import { AssetTable } from 'src/schema/tables/asset.table.js';
 import {
   anyUuid,
   asUuid,
-  assetInViewedLibrary,
   hasAssetAccess,
   hasPeople,
-  inSharedAlbum,
   removeUndefinedKeys,
   truncatedDate,
   unnest,
