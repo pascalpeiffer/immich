@@ -26,13 +26,20 @@ import { getPreferences } from 'src/utils/preferences.js';
 
 @Injectable()
 export class AlbumService extends BaseService {
-  async getViewerAlbumAddition(ownerId: string): Promise<MapAlbumDto[]> {
+  async getViewerAlbumAddition(ownerId: string, assetId?: string): Promise<MapAlbumDto[]> {
     const albums: MapAlbumDto[] = [];
+
+    let asset;
+
+    if (assetId) {
+      asset = await this.assetRepository.getById(assetId);
+    }
 
     const viewers = await this.viewerRepository.getByUserId(ownerId);
     for (const v of viewers) {
       const lib = await this.libraryRepository.get(v.libraryId);
       if (!lib) continue;
+      if (asset && lib.id !== asset.libraryId) continue;
       const user = mapUser(
         await findOrFail(() => this.userRepository.get(lib.ownerId, { withDeleted: false }), 'User'),
       );
@@ -119,9 +126,9 @@ export class AlbumService extends BaseService {
       ? await this.albumRepository.getByAssetId(ownerId, assetId)
       : await this.albumRepository.getAll(ownerId, rest);
 
-    const viewerAlb = await this.getViewerAlbumAddition(ownerId);
+    const viewerAlb = await this.getViewerAlbumAddition(ownerId, assetId);
 
-    if (rest.isOwned === undefined) {
+    if (rest.isOwned === undefined && rest.id === undefined) {
       albums = [...albums, ...viewerAlb];
     }
 
