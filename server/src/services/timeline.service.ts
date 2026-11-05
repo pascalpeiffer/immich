@@ -10,33 +10,37 @@ import { getMyPartnerIds } from 'src/utils/asset.util.js';
 @Injectable()
 export class TimelineService extends BaseService {
   async getTimeBuckets(auth: AuthDto, dto: TimeBucketDto): Promise<TimeBucketsResponseDto[]> {
-    let libraryId;
+    let libraryIds: string[] | undefined;
     if (dto.albumId !== undefined) {
       const library = await this.libraryRepository.get(dto.albumId!);
       if (library !== undefined) {
         dto.albumId = undefined;
-        libraryId = library.id;
+        libraryIds = [...(dto.libraryIds || []), library.id];
       }
+    } else if (dto.libraryIds !== undefined) {
+      libraryIds = dto.libraryIds;
     }
 
     await this.timeBucketChecks(auth, dto);
-    const timeBucketOptions = await this.buildTimeBucketOptions(auth, dto, libraryId);
+    const timeBucketOptions = await this.buildTimeBucketOptions(auth, dto, libraryIds);
     return await this.assetRepository.getTimeBuckets(timeBucketOptions, auth);
   }
 
   // pre-jsonified response
   async getTimeBucket(auth: AuthDto, dto: TimeBucketAssetDto): Promise<string> {
-    let libraryId;
+    let libraryIds: string[] | undefined;
     if (dto.albumId !== undefined) {
       const library = await this.libraryRepository.get(dto.albumId!);
       if (library !== undefined) {
         dto.albumId = undefined;
-        libraryId = library.id;
+        libraryIds = [...(dto.libraryIds || []), library.id];
       }
+    } else if (dto.libraryIds !== undefined) {
+      libraryIds = dto.libraryIds;
     }
 
     await this.timeBucketChecks(auth, dto);
-    const timeBucketOptions = await this.buildTimeBucketOptions(auth, { ...dto }, libraryId);
+    const timeBucketOptions = await this.buildTimeBucketOptions(auth, { ...dto }, libraryIds);
 
     // TODO: use id cursor for pagination
     const bucket = await this.assetRepository.getTimeBucket(dto.timeBucket, timeBucketOptions, auth);
@@ -46,7 +50,7 @@ export class TimelineService extends BaseService {
   private async buildTimeBucketOptions(
     auth: AuthDto,
     dto: TimeBucketDto,
-    libraryId?: string,
+    libraryIds?: string[],
   ): Promise<TimeBucketOptions> {
     const { userId, ...options } = dto;
     let userIds: string[] | undefined;
@@ -63,7 +67,7 @@ export class TimelineService extends BaseService {
       }
     }
 
-    return { ...options, userIds, libraryId };
+    return { ...options, userIds, libraryIds };
   }
 
   private async timeBucketChecks(auth: AuthDto, dto: TimeBucketDto) {

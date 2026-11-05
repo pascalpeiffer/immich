@@ -23,10 +23,12 @@
   import { mediaQueryManager } from '$lib/stores/media-query-manager.svelte';
   import { isAssetViewerRoute, navigate } from '$lib/utils/navigation';
   import { getTimes, type ScrubberListener } from '$lib/utils/timeline-util';
-  import { type AlbumResponseDto, type PersonResponseDto, type UserResponseDto } from '@immich/sdk';
+  import { getViewerLibraries, type AlbumResponseDto, type PersonResponseDto, type UserResponseDto } from '@immich/sdk';
   import { DateTime } from 'luxon';
   import { onDestroy, onMount, tick, type Snippet } from 'svelte';
   import type { UpdatePayload } from 'vite';
+  import { Button, MultiSelect } from '@immich/ui';
+  import { t } from 'svelte-i18n';
 
   interface Props {
     isSelectionMode?: boolean;
@@ -265,6 +267,8 @@
       invisible = false;
     }
     scrollableElement?.focus({ preventScroll: true });
+
+    void loadLibraries();
   });
 
   const scrollToSegmentPercentage = (segmentTop: number, segmentHeight: number, timelineMonthScrollPercent: number) => {
@@ -551,6 +555,29 @@
     }
     void navigate({ targetRoute: 'current', assetId: asset.id });
   };
+
+  let libraryFilterOptions: { label: string; value: string }[] = $state([]);
+  let librarySelectedFilter: string[] = $state([]);
+
+  const loadLibraries = async () => {
+    try {
+      const libraries = await getViewerLibraries();
+      libraryFilterOptions = libraries.map((library) => ({
+        label: library.name,
+        value: library.id,
+      }));
+    } catch (error) {
+      console.error('Failed to load viewer libraries', error);
+    }
+  };
+
+  const updateLibraryFilter = () => {
+    if (options) {
+      let newOptions = { ...options };
+      newOptions.libraryIds = librarySelectedFilter.length > 0 ? librarySelectedFilter : undefined;
+      timelineManager.updateOptions(newOptions);
+    }
+  };
 </script>
 
 <HotModuleReload
@@ -576,142 +603,169 @@
   {onEscape}
 />
 
-{#if timelineManager.months.length > 0}
-  <Scrubber
-    {timelineManager}
-    height={timelineManager.viewportHeight}
-    timelineTopOffset={timelineManager.topSectionHeight}
-    timelineBottomOffset={timelineManager.bottomSectionHeight}
-    {timelineScrollPercent}
-    {viewportTopMonthScrollPercent}
-    {viewportTopMonth}
-    {onScrub}
-    bind:scrubberWidth
-    onScrubKeyDown={(evt) => {
-      evt.preventDefault();
-      let amount = keyboardManager.shift ? 500 : 50;
-      if (evt.key === 'ArrowUp') {
-        amount = -amount;
-        if (keyboardManager.shift) {
-          scrollableElement?.scrollBy({ top: amount, behavior: 'smooth' });
-        }
-      } else if (evt.key === 'ArrowDown') {
-        scrollableElement?.scrollBy({ top: amount, behavior: 'smooth' });
-      }
-    }}
-  />
-{/if}
+<div class="relative flex h-full w-full flex-col">
+  {#if options?.albumId == undefined}
+    <div class="flex shrink-0 items-center px-4 py-2">
+      <MultiSelect
+        options={libraryFilterOptions}
+        title={$t('filter_by_library')}
+        bind:values={librarySelectedFilter}
+        placeholder={$t('filter_by_library')}
+        onSelect={() => updateLibraryFilter()}
+      />
+      <Button
+        size="small"
+        variant="ghost"
+        color="secondary"
+        onclick={() => {
+          librarySelectedFilter = [];
+          updateLibraryFilter();
+        }}>{$t('clear_all')}</Button
+      >
+    </div>
+  {/if}
 
-<!-- Right margin MUST be equal to the width of scrubber -->
-<section
-  id="asset-grid"
-  class={['h-full scrollbar-hidden overflow-y-auto outline-none', { 'm-0': isEmpty }, { 'ms-0': !isEmpty }]}
-  style:margin-inline-end={(usingMobileDevice ? 0 : scrubberWidth) + 'px'}
-  tabindex="-1"
-  bind:clientHeight={timelineManager.viewportHeight}
-  bind:clientWidth={timelineManager.viewportWidth}
-  bind:this={scrollableElement}
-  onscroll={() => (handleTimelineScroll(), timelineManager.updateSlidingWindow(), updateIsScrolling())}
->
-  <section
-    bind:this={timelineElement}
-    id="virtual-timeline"
-    class:invisible
-    style:height={timelineManager.totalViewerHeight + 'px'}
-  >
+  <!-- Scrubber and grid share this container, so both are sized/positioned
+       relative to the space left over below the filter bar -->
+  <div class="relative min-h-0 flex-1">
+    {#if timelineManager.months.length > 0}
+      <Scrubber
+        {timelineManager}
+        height={timelineManager.viewportHeight}
+        timelineTopOffset={timelineManager.topSectionHeight}
+        timelineBottomOffset={timelineManager.bottomSectionHeight}
+        {timelineScrollPercent}
+        {viewportTopMonthScrollPercent}
+        {viewportTopMonth}
+        {onScrub}
+        bind:scrubberWidth
+        onScrubKeyDown={(evt) => {
+          evt.preventDefault();
+          let amount = keyboardManager.shift ? 500 : 50;
+          if (evt.key === 'ArrowUp') {
+            amount = -amount;
+            if (keyboardManager.shift) {
+              scrollableElement?.scrollBy({ top: amount, behavior: 'smooth' });
+            }
+          } else if (evt.key === 'ArrowDown') {
+            scrollableElement?.scrollBy({ top: amount, behavior: 'smooth' });
+          }
+        }}
+      />
+    {/if}
+
+    <!-- Right margin MUST be equal to the width of scrubber -->
     <section
-      bind:clientHeight={timelineManager.topSectionHeight}
-      class:invisible
-      style:position="absolute"
-      style:left="0"
-      style:right="0"
+      id="asset-grid"
+      class={['h-full scrollbar-hidden overflow-y-auto outline-none', { 'm-0': isEmpty }, { 'ms-0': !isEmpty }]}
+      style:margin-inline-end={(usingMobileDevice ? 0 : scrubberWidth) + 'px'}
+      tabindex="-1"
+      bind:clientHeight={timelineManager.viewportHeight}
+      bind:clientWidth={timelineManager.viewportWidth}
+      bind:this={scrollableElement}
+      onscroll={() => (handleTimelineScroll(), timelineManager.updateSlidingWindow(), updateIsScrolling())}
     >
-      {@render children?.()}
-      {#if isEmpty}
-        <!-- (optional) empty placeholder -->
-        {@render empty?.()}
-      {/if}
+      <section
+        bind:this={timelineElement}
+        id="virtual-timeline"
+        class:invisible
+        style:height={timelineManager.totalViewerHeight + 'px'}
+      >
+        <section
+          bind:clientHeight={timelineManager.topSectionHeight}
+          class:invisible
+          style:position="absolute"
+          style:left="0"
+          style:right="0"
+        >
+          {@render children?.()}
+          {#if isEmpty}
+            <!-- (optional) empty placeholder -->
+            {@render empty?.()}
+          {/if}
+        </section>
+
+        {#each timelineManager.months as timelineMonth (timelineMonth.viewId)}
+          {@const isInOrNearViewport = timelineMonth.isInOrNearViewport}
+          {@const absoluteHeight = timelineMonth.top}
+
+          {#if !timelineMonth.isLoaded}
+            <div
+              style:height={timelineMonth.height + 'px'}
+              style:position="absolute"
+              style:transform={`translate3d(0,${absoluteHeight}px,0)`}
+              style:width="100%"
+            >
+              <Skeleton {invisible} height={timelineMonth.height} title={timelineMonth.title} />
+            </div>
+          {:else if isInOrNearViewport}
+            <div
+              class="timeline-month"
+              style:height={timelineMonth.height + 'px'}
+              style:position="absolute"
+              style:transform={`translate3d(0,${absoluteHeight}px,0)`}
+              style:width="100%"
+            >
+              <Month
+                {assetInteraction}
+                {customThumbnailLayout}
+                {singleSelect}
+                {timelineMonth}
+                manager={timelineManager}
+                onTimelineDaySelect={handleGroupSelect}
+              >
+                {#snippet thumbnail({ asset, position, timelineDay, groupIndex })}
+                  {@const isAssetSelectionCandidate = assetInteraction.hasSelectionCandidate(asset.id)}
+                  {@const isAssetSelected =
+                    assetInteraction.hasSelectedAsset(asset.id) || timelineManager.albumAssets.has(asset.id)}
+                  {@const isAssetDisabled = timelineManager.albumAssets.has(asset.id)}
+                  <Thumbnail
+                    showStackedIcon={withStacked}
+                    {showArchiveIcon}
+                    {asset}
+                    {albumUsers}
+                    {groupIndex}
+                    onClick={(asset) => {
+                      if (typeof onThumbnailClick === 'function') {
+                        onThumbnailClick(asset, timelineManager, timelineDay, _onClick);
+                      } else {
+                        _onClick(timelineManager, timelineDay.getAssets(), timelineDay.groupTitle, asset);
+                      }
+                    }}
+                    onSelect={() => {
+                      if (isSelectionMode || assetInteraction.selectionActive) {
+                        assetSelectHandler(timelineManager, asset, timelineDay.getAssets(), timelineDay.groupTitle);
+                        return;
+                      }
+                      void onSelectAssets(asset);
+                    }}
+                    onMouseEvent={() => handleSelectAssetCandidates(asset)}
+                    onPreview={isSelectionMode || assetInteraction.selectionActive
+                      ? (asset) => void navigate({ targetRoute: 'current', assetId: asset.id })
+                      : undefined}
+                    selected={isAssetSelected}
+                    selectionCandidate={isAssetSelectionCandidate}
+                    disabled={isAssetDisabled}
+                    thumbnailWidth={position.width}
+                    thumbnailHeight={position.height}
+                  />
+                {/snippet}
+              </Month>
+            </div>
+          {/if}
+        {/each}
+        <!-- spacer for leadout -->
+        <div
+          style:height={timelineManager.bottomSectionHeight + 'px'}
+          style:position="absolute"
+          style:left="0"
+          style:right="0"
+          style:transform={`translate3d(0,${timelineManager.topSectionHeight + timelineManager.bodySectionHeight}px,0)`}
+        ></div>
+      </section>
     </section>
-
-    {#each timelineManager.months as timelineMonth (timelineMonth.viewId)}
-      {@const isInOrNearViewport = timelineMonth.isInOrNearViewport}
-      {@const absoluteHeight = timelineMonth.top}
-
-      {#if !timelineMonth.isLoaded}
-        <div
-          style:height={timelineMonth.height + 'px'}
-          style:position="absolute"
-          style:transform={`translate3d(0,${absoluteHeight}px,0)`}
-          style:width="100%"
-        >
-          <Skeleton {invisible} height={timelineMonth.height} title={timelineMonth.title} />
-        </div>
-      {:else if isInOrNearViewport}
-        <div
-          class="timeline-month"
-          style:height={timelineMonth.height + 'px'}
-          style:position="absolute"
-          style:transform={`translate3d(0,${absoluteHeight}px,0)`}
-          style:width="100%"
-        >
-          <Month
-            {assetInteraction}
-            {customThumbnailLayout}
-            {singleSelect}
-            {timelineMonth}
-            manager={timelineManager}
-            onTimelineDaySelect={handleGroupSelect}
-          >
-            {#snippet thumbnail({ asset, position, timelineDay, groupIndex })}
-              {@const isAssetSelectionCandidate = assetInteraction.hasSelectionCandidate(asset.id)}
-              {@const isAssetSelected =
-                assetInteraction.hasSelectedAsset(asset.id) || timelineManager.albumAssets.has(asset.id)}
-              {@const isAssetDisabled = timelineManager.albumAssets.has(asset.id)}
-              <Thumbnail
-                showStackedIcon={withStacked}
-                {showArchiveIcon}
-                {asset}
-                {albumUsers}
-                {groupIndex}
-                onClick={(asset) => {
-                  if (typeof onThumbnailClick === 'function') {
-                    onThumbnailClick(asset, timelineManager, timelineDay, _onClick);
-                  } else {
-                    _onClick(timelineManager, timelineDay.getAssets(), timelineDay.groupTitle, asset);
-                  }
-                }}
-                onSelect={() => {
-                  if (isSelectionMode || assetInteraction.selectionActive) {
-                    assetSelectHandler(timelineManager, asset, timelineDay.getAssets(), timelineDay.groupTitle);
-                    return;
-                  }
-                  void onSelectAssets(asset);
-                }}
-                onMouseEvent={() => handleSelectAssetCandidates(asset)}
-                onPreview={isSelectionMode || assetInteraction.selectionActive
-                  ? (asset) => void navigate({ targetRoute: 'current', assetId: asset.id })
-                  : undefined}
-                selected={isAssetSelected}
-                selectionCandidate={isAssetSelectionCandidate}
-                disabled={isAssetDisabled}
-                thumbnailWidth={position.width}
-                thumbnailHeight={position.height}
-              />
-            {/snippet}
-          </Month>
-        </div>
-      {/if}
-    {/each}
-    <!-- spacer for leadout -->
-    <div
-      style:height={timelineManager.bottomSectionHeight + 'px'}
-      style:position="absolute"
-      style:left="0"
-      style:right="0"
-      style:transform={`translate3d(0,${timelineManager.topSectionHeight + timelineManager.bodySectionHeight}px,0)`}
-    ></div>
-  </section>
-</section>
+  </div>
+</div>
 
 <Portal target="body">
   {#if assetViewerManager.isViewing}

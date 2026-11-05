@@ -4,12 +4,17 @@ import { BBoxSchema } from 'src/dtos/bbox.dto.js';
 import { AssetOrderBySchema, AssetOrderSchema, AssetVisibilitySchema } from 'src/enum.js';
 import { stringToBool } from 'src/validation.js';
 
+const toArray = (value: unknown) => (value === undefined ? undefined : Array.isArray(value) ? value : [value]);
+
 const TimeBucketQueryBaseSchema = z
   .object({
     userId: z.uuidv4().optional().describe('Filter assets by specific user ID'),
     albumId: z.uuidv4().optional().describe('Filter assets belonging to a specific album'),
     personId: z.uuidv4().optional().describe('Filter assets containing a specific person (face recognition)'),
     tagId: z.uuidv4().optional().describe('Filter assets with a specific tag'),
+    libraryIds: z
+      .preprocess(toArray, z.array(z.uuidv4()).optional())
+      .describe('Filter assets belonging to specific libraries'),
     isFavorite: stringToBool
       .optional()
       .describe('Filter by favorite status (true for favorites only, false for non-favorites only)'),

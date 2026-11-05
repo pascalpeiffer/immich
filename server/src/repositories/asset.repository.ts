@@ -99,7 +99,7 @@ interface AssetBuilderOptions {
 export interface TimeBucketOptions extends AssetBuilderOptions {
   order?: AssetOrder;
   orderBy?: AssetOrderBy;
-  libraryId?: string;
+  libraryIds?: string[];
 }
 
 export interface TimeBucketItem {
@@ -805,7 +805,7 @@ export class AssetRepository {
           )
           .select(truncatedDate<Date>(options.orderBy).as('timeBucket'))
           .$if(!!options.isTrashed, (qb) => qb.where('asset.status', '!=', AssetStatus.Deleted))
-          .$if(options.libraryId !== undefined, (qb) => qb.where('asset.libraryId', '=', options.libraryId!))
+          .$if(options.libraryIds !== undefined, (qb) => qb.where('asset.libraryId', 'in', options.libraryIds!))
           .$if(options.isTrashed === true, (qb) =>
             qb.where((eb) =>
               eb.and([
@@ -925,7 +925,7 @@ export class AssetRepository {
                 .as('viewer_override'),
             (join) => join.onTrue(),
           )
-          .$if(options.libraryId !== undefined, (qb) => qb.where('asset.libraryId', '=', options.libraryId!))
+          .$if(options.libraryIds !== undefined, (qb) => qb.where('asset.libraryId', 'in', options.libraryIds!))
           .select((eb) => [
             'asset.duration',
             'asset.id',

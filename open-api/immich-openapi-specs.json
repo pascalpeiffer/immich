@@ -16211,6 +16211,20 @@
             }
           },
           {
+            "name": "libraryIds",
+            "required": false,
+            "in": "query",
+            "description": "Filter assets belonging to specific libraries",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+              }
+            }
+          },
+          {
             "name": "order",
             "required": false,
             "in": "query",
@@ -16407,6 +16421,20 @@
             "in": "query",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "libraryIds",
+            "required": false,
+            "in": "query",
+            "description": "Filter assets belonging to specific libraries",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+              }
             }
           },
           {

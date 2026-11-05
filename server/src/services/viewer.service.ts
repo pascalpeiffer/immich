@@ -25,7 +25,7 @@ export class ViewerService extends BaseService {
     const userLibraryIds = new Set(allViewerEntries.filter((v) => v.userId === auth.user.id).map((v) => v.libraryId));
     const allLibraries = await this.libraryRepository.getAll();
     const libs: LibraryWithAssetResponseDto[] = allLibraries
-      .filter((l) => userLibraryIds.has(l.id))
+      .filter((l) => userLibraryIds.has(l.id) || l.ownerId === auth.user.id)
       .map((l) => mapLibrary(l));
     for (let i = 0; i < libs.length; i++) {
       const viewerEntry = await this.viewerRepository.getByLibraryAndUserId(libs[i].id, auth.user.id);

@@ -1165,6 +1165,7 @@
   "filetype": "Dateityp",
   "filter": "Filter",
   "filter_by": "Filtern nach",
+  "filter_by_library": "Filtern nach Bibliothek",
   "filter_people": "Personen filtern",
   "filter_places": "Orte filtern",
   "filter_tags": "Tags filtern",
