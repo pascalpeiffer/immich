@@ -1,6 +1,4 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import type { ArgOf } from 'src/repositories/event.repository.js';
-import type { EmailImageAttachment, JobOf } from 'src/types.js';
 import { Viewer } from 'src/database.js';
 import { OnEvent, OnJob } from 'src/decorators.js';
 import { MapAlbumDto } from 'src/dtos/album.dto.js';
@@ -25,7 +23,9 @@ import {
   QueueName,
 } from 'src/enum.js';
 import { EmailTemplate } from 'src/repositories/email.repository.js';
+import type { ArgOf } from 'src/repositories/event.repository.js';
 import { BaseService } from 'src/services/base.service.js';
+import type { EmailImageAttachment, JobOf } from 'src/types.js';
 import { getFilenameExtension } from 'src/utils/file.js';
 import { getExternalDomain } from 'src/utils/misc.js';
 import { isEqualObject } from 'src/utils/object.js';
@@ -124,6 +124,21 @@ export class NotificationService extends BaseService {
     this.websocketRepository.serverSend('AppRestart', state);
   }
 
+  @OnEvent({ name: 'LibraryCreate' })
+  onLibraryCreate() {
+    this.websocketRepository.serverSend('LibraryCreate');
+  }
+
+  @OnEvent({ name: 'LibraryUpdate' })
+  onLibraryUpdate() {
+    this.websocketRepository.serverSend('LibraryUpdate');
+  }
+
+  @OnEvent({ name: 'LibraryDelete' })
+  onLibraryDelete() {
+    this.websocketRepository.serverSend('LibraryDelete');
+  }
+
   @OnEvent({ name: 'ConfigValidate', priority: -100 })
   async onConfigValidate({ oldConfig, newConfig }: ArgOf<'ConfigValidate'>) {
     try {
@@ -171,16 +186,18 @@ export class NotificationService extends BaseService {
     }
 
     const [asset] = await this.assetRepository.getByIdsWithAllRelationsButStacks([assetId], userId);
-    if (asset) {
-      const viewers: Viewer[] = asset.libraryId ? await this.viewerRepository.getByLibraryId(asset.libraryId) : [];
-      const userIds = [...viewers.map((v) => v.id), userId];
-      for (const id of userIds) {
-        this.websocketRepository.clientSend(
-          'on_asset_update',
-          id,
-          mapAsset(asset, { auth: { user: { id } } as AuthDto }),
-        );
-      }
+    if (!asset) {
+      return;
+    }
+
+    const viewers: Viewer[] = asset.libraryId ? await this.viewerRepository.getByLibraryId(asset.libraryId) : [];
+    const userIds = [...viewers.map((v) => v.id), userId];
+    for (const id of userIds) {
+      this.websocketRepository.clientSend(
+        'on_asset_update',
+        id,
+        mapAsset(asset, { auth: { user: { id } } as AuthDto }),
+      );
     }
   }
 
@@ -329,7 +346,7 @@ export class NotificationService extends BaseService {
 
   @OnJob({ name: JobName.NotifyAlbumInvite, queue: QueueName.Notification })
   async handleAlbumInvite({ id, recipientId, senderName }: JobOf<JobName.NotifyAlbumInvite>) {
-    const album = await this.albumRepository.getById(id, { withAssets: false });
+    const album = await this.albumRepository.getById(id);
     if (!album) {
       return JobStatus.Skipped;
     }
@@ -379,7 +396,7 @@ export class NotificationService extends BaseService {
 
   @OnJob({ name: JobName.NotifyAlbumUpdate, queue: QueueName.Notification })
   async handleAlbumUpdate({ id, recipientId }: JobOf<JobName.NotifyAlbumUpdate>) {
-    const album = await this.albumRepository.getById(id, { withAssets: false });
+    const album = await this.albumRepository.getById(id);
 
     if (!album) {
       return JobStatus.Skipped;

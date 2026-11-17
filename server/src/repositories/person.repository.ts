@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import {
+  expressionBuilder,
+  sql,
   type ExpressionBuilder,
   type Insertable,
   type Kysely,
   type SqlBool,
   type Updateable,
-  expressionBuilder,
-  sql,
 } from 'kysely';
 import { jsonArrayFrom, jsonObjectFrom } from 'kysely/helpers/postgres';
 import { InjectKysely } from 'nestjs-kysely';
@@ -30,7 +30,7 @@ import {
   withFilePath,
 } from 'src/utils/database.js';
 import { isLeapDayObserved } from 'src/utils/date.js';
-import { type PaginationOptions, paginationHelper } from 'src/utils/pagination.js';
+import { paginationHelper, type PaginationOptions } from 'src/utils/pagination.js';
 
 export interface PersonFilterOptions {
   sharedById?: string;
@@ -473,13 +473,10 @@ export class PersonRepository {
                 embedding.whereRef('face_search.faceId', '=', 'people.faceAssetId'),
                 '<=>',
                 options.closestPersonId
-                  ? // `owned` has one row per group, so this resolves to a single face
-                    embedding.where('face_search.faceId', '=', (eb) =>
-                      eb
-                        .selectFrom('owned')
-                        .select('owned.faceAssetId')
-                        .where('owned.personGroupId', '=', options.closestPersonId!),
-                    )
+                  ? embedding
+                      .innerJoin('person', 'person.faceAssetId', 'face_search.faceId')
+                      .where((eb) => hasPersonAccess(eb, userId))
+                      .where('person.personGroupId', '=', options.closestPersonId)
                   : embedding.where('face_search.faceId', '=', options.closestFaceAssetId!),
               );
             }),

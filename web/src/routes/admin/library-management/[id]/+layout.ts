@@ -1,12 +1,19 @@
-import { getLibrary, getLibraryStatistics, type LibraryResponseDto, type UserResponseDto, type ViewerResponseDto, getViewersByLibraryId, getUser } from '@immich/sdk';
+import { Route } from '#lib/route.ts';
+import { authenticate } from '#lib/utils/auth.ts';
+import { getFormatter } from '#lib/utils/i18n.ts';
+import {
+  getLibrary,
+  getLibraryStatistics,
+  getUser,
+  getViewersByLibraryId,
+  type LibraryResponseDto,
+  type UserResponseDto,
+  type ViewerResponseDto,
+} from '@immich/sdk';
 import { redirect } from '@sveltejs/kit';
-import { Route } from '$lib/route';
-import { authenticate } from '$lib/utils/auth';
-import { getFormatter } from '$lib/utils/i18n';
 import type { LayoutLoad } from './$types';
 
-export const load = (async ({ params: { id }, url, depends }) => {
-  depends('app:library');
+export const load = (async ({ params: { id }, url }) => {
   await authenticate(url, { admin: true });
 
   let library: LibraryResponseDto;

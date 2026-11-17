@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { ExpressionBuilder, type Kysely, sql } from 'kysely';
+import { ExpressionBuilder, sql, type Kysely } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
-import type { SyncAck } from 'src/types.js';
 import { columns } from 'src/database.js';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
 import { MemoryType } from 'src/enum.js';
@@ -20,6 +19,7 @@ const viewedOwnerIds = (eb: ExpressionBuilder<DB, any>, userId: string) =>
 
 const canSeeAsset = (eb: ExpressionBuilder<DB, any>, userId: string) =>
   eb.or([eb('asset.ownerId', '=', userId), eb('asset.libraryId', 'in', viewedLibraryIds(eb, userId))]);
+import type { SyncAck } from 'src/types.js';
 
 export type SyncBackfillOptions = {
   nowId: string;

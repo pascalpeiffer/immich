@@ -1,7 +1,14 @@
 <script lang="ts">
-  import SearchHistorySection from './SearchHistorySection.svelte';
-  import { t } from 'svelte-i18n';
-  import { fly } from 'svelte/transition';
+  import SearchLibrarySection from '#lib/components/shared-components/search-bar/SearchLibrarySection.svelte';
+  import { authManager } from '#lib/managers/auth-manager.svelte.ts';
+  import { searchManager } from '#lib/managers/search-manager.svelte.ts';
+  import {
+    getAllLibraries,
+    getAllTags,
+    type LibraryWithAssetResponseDto,
+    type PersonResponseDto,
+    type TagResponseDto,
+  } from '@immich/sdk';
   import { Button, Text } from '@immich/ui';
   import {
     mdiAccount,
@@ -15,23 +22,22 @@
     mdiTagMultiple,
     mdiTune,
   } from '@mdi/js';
-  import SearchLocationSection from './SearchLocationSection.svelte';
-  import {
-    getAllTags,
-    type LibraryWithAssetResponseDto,
-    type PersonResponseDto,
-    type TagResponseDto,
-  } from '@immich/sdk';
-  import SearchMediaSection from './SearchMediaSection.svelte';
+  import { onMount } from 'svelte';
+  import { t } from 'svelte-i18n';
+  import { fly } from 'svelte/transition';
+  import SearchButton from './SearchButton.svelte';
   import SearchCameraSection from './SearchCameraSection.svelte';
   import SearchDateSection from './SearchDateSection.svelte';
+  import SearchDisplaySection from './SearchDisplaySection.svelte';
+  import SearchHistorySection from './SearchHistorySection.svelte';
+  import SearchLocationSection from './SearchLocationSection.svelte';
+  import SearchMediaSection from './SearchMediaSection.svelte';
   import SearchPeopleSection from './SearchPeopleSection.svelte';
+  import SearchRatingsSection from './SearchRatingsSection.svelte';
   import SearchTagsSection from './SearchTagsSection.svelte';
   import SearchTextSection from './SearchTextSection.svelte';
-  import SearchDisplaySection from './SearchDisplaySection.svelte';
-  import SearchRatingsSection from './SearchRatingsSection.svelte';
-  import { authManager } from '$lib/managers/auth-manager.svelte';
   import {
+    getLibraries,
     getPeople,
     getSearchDatePreset,
     getSearchDateTitle,
@@ -42,10 +48,6 @@
     getSearchTagsTitle,
     getSearchTypeTitle,
   } from './search-bar-utils';
-  import { onMount } from 'svelte';
-  import { searchManager } from '$lib/managers/search-manager.svelte';
-  import SearchButton from './SearchButton.svelte';
-  import SearchLibrarySection from '$lib/components/shared-components/search-bar/SearchLibrarySection.svelte';
 
   interface Props {
     id: string;
@@ -151,6 +153,9 @@
     searchManager.filter.display.isArchive ||
       searchManager.filter.display.isFavorite ||
       searchManager.filter.display.isNotInAlbum ||
+      searchManager.filter.camera.make !== undefined ||
+      searchManager.filter.camera.model !== undefined ||
+      searchManager.filter.camera.lensModel !== undefined ||
       searchManager.filter.rating,
   );
 
@@ -163,6 +168,11 @@
     if (searchManager.filter.personIds.size > 0 && !peoplePromise) {
       peoplePromise = getPeople(searchManager.filter.personIds);
       void peoplePromise.then((res) => (people = res));
+    }
+
+    if (searchManager.filter.libraryIds.size > 0 && !libraryPromise) {
+      libraryPromise = getLibraries(searchManager.filter.libraryIds);
+      void libraryPromise.then((res) => (libraries = res));
     }
 
     if (searchManager.filter.tagIds?.size && !tagsPromise) {

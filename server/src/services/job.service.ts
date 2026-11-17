@@ -99,9 +99,7 @@ export class JobService extends BaseService {
     }
   }
 
-  /**
-   * Queue follow up jobs
-   */
+  /** Queue follow up jobs */
   private async onDone(item: JobItem) {
     switch (item.name) {
       case JobName.SidecarCheck: {

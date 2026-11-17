@@ -3,10 +3,10 @@ import {
   AfterInsertTrigger,
   CreateDateColumn,
   ForeignKeyColumn,
-  type Generated,
   Table,
   Timestamp,
   UpdateDateColumn,
+  type Generated,
 } from '@immich/sql-tools';
 import { UpdateIdColumn, UpdatedAtTrigger } from 'src/decorators.js';
 import { bump_memory_on_asset, memory_asset_delete_audit } from 'src/schema/functions.js';

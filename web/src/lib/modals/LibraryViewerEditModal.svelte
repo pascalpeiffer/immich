@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { handleEditLibraryViewer } from '$lib/services/library.service';
+  import { handleEditLibraryViewer } from '#lib/services/library.service.ts';
   import { type LibraryResponseDto, type ViewerResponseDto } from '@immich/sdk';
   import { Field, FormModal, Switch, Text } from '@immich/ui';
   import { t } from 'svelte-i18n';
@@ -13,10 +13,8 @@
 
   const { library, userId, viewers, onClose }: Props = $props();
   const viewer = viewers.find((v) => v.userId === userId);
-  let editPermission: boolean = $state(viewer && viewer.edit !== undefined ? viewer.edit : false);
-  let deletePermission: boolean = $state(viewer && viewer.delete !== undefined ? viewer.delete : false);
-
-  console.log(editPermission, deletePermission);
+  let editPermission: boolean = $state(viewer?.edit ?? false);
+  let deletePermission: boolean = $state(viewer?.delete ?? false);
 
   const onSubmit = async () => {
     const success = await handleEditLibraryViewer(library, userId, viewers, {

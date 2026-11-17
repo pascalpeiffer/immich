@@ -1,8 +1,7 @@
 <script lang="ts">
-  import { handleAddLibraryViewer } from '$lib/services/library.service';
-  import UserAvatar from '$lib/components/shared-components/UserAvatar.svelte';
-  import { authManager } from '$lib/managers/auth-manager.svelte';
-  import { searchUsers, type UserResponseDto, type LibraryResponseDto, type ViewerResponseDto } from '@immich/sdk';
+  import UserAvatar from '#lib/components/shared-components/UserAvatar.svelte';
+  import { handleAddLibraryViewer } from '#lib/services/library.service.ts';
+  import { searchUsers, type LibraryResponseDto, type UserResponseDto, type ViewerResponseDto } from '@immich/sdk';
   import { Button, ListButton, LoadingSpinner, Modal, ModalBody, ModalFooter, Text } from '@immich/ui';
   import { t } from 'svelte-i18n';
 
@@ -24,8 +23,8 @@
     users = users.filter((user) => user.id !== library.ownerId);
 
     //const viewersIds = library.viewerIds;
-    const viewersIds = new Set([viewers.map((v) => v.userId)]);
-    availableUsers = users.filter((user) => !viewersIds.has([user.id]));
+    const viewersIds = new Set(viewers.map((v) => v.userId));
+    availableUsers = users.filter((user) => !viewersIds.has(user.id));
   };
 
   const selectUser = (user: UserResponseDto) => {

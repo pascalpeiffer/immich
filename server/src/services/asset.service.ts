@@ -2,8 +2,6 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { isUndefined, omitBy } from 'lodash-es';
 import { DateTime, Duration } from 'luxon';
 import type { AssetFile } from 'src/database.js';
-import type { AuthDto } from 'src/dtos/auth.dto.js';
-import type { JobItem, JobOf } from 'src/types.js';
 import { OnJob } from 'src/decorators.js';
 import { AssetResponseDto, SanitizedAssetResponseDto, mapAsset } from 'src/dtos/asset-response.dto.js';
 import {
@@ -21,11 +19,12 @@ import {
   UpdateAssetDto,
   mapStats,
 } from 'src/dtos/asset.dto.js';
+import type { AuthDto } from 'src/dtos/auth.dto.js';
 import {
   AssetEditAction,
-  type AssetEditActionItem,
   AssetEditsCreateDto,
   AssetEditsResponseDto,
+  type AssetEditActionItem,
 } from 'src/dtos/editing.dto.js';
 import { AssetOcrResponseDto } from 'src/dtos/ocr.dto.js';
 import {
@@ -39,6 +38,7 @@ import {
   QueueName,
 } from 'src/enum.js';
 import { BaseService } from 'src/services/base.service.js';
+import type { JobItem, JobOf } from 'src/types.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
 import {
   getAssetFiles,
@@ -91,10 +91,10 @@ export class AssetService extends BaseService {
 
       if (viewer) {
         const favorite = await this.viewerRepository.getFavorite(viewer!.id, asset.id);
-        fav = favorite ? favorite.isFavorite : fav;
+        fav = favorite?.isFavorite ?? fav;
 
         const visibility = await this.viewerRepository.getVisibility(viewer!.id, asset.id);
-        vis = visibility ? visibility.visibility : vis;
+        vis = visibility?.visibility ?? vis;
       }
 
       asset.isFavorite = fav;
@@ -102,7 +102,7 @@ export class AssetService extends BaseService {
     }
 
     if (auth.sharedLink && !auth.sharedLink.showExif) {
-      return mapAsset(asset, { stripMetadata: true, withStack: true, auth });
+      return mapAsset(asset, { withStack: true, auth });
     }
 
     const data = mapAsset(asset, { withStack: true, auth });
@@ -168,6 +168,7 @@ export class AssetService extends BaseService {
 
     let previousMotion: { id: string } | null = null;
     if (rest.livePhotoVideoId) {
+      await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [rest.livePhotoVideoId] });
       await onBeforeLink(repos, { userId: auth.user.id, livePhotoVideoId: rest.livePhotoVideoId });
     } else if (rest.livePhotoVideoId === null) {
       const asset = await this.findOrFail(id);
@@ -399,7 +400,7 @@ export class AssetService extends BaseService {
     let count = 0;
     for await (const assets of batched(this.assetJobRepository.streamForDeletedJob(trashedBefore))) {
       await this.jobRepository.queueAll(
-        assets.map(({ id, isOffline }) => ({ name: JobName.AssetDelete, data: { id, deleteOnDisk: !isOffline } })),
+        assets.map(({ id }) => ({ name: JobName.AssetDelete, data: { id, deleteOnDisk: true } })),
       );
       count += assets.length;
     }
@@ -412,13 +413,16 @@ export class AssetService extends BaseService {
 
   @OnJob({ name: JobName.AssetDelete, queue: QueueName.BackgroundTask })
   async handleAssetDeletion(job: JobOf<JobName.AssetDelete>): Promise<JobStatus> {
-    const { id, deleteOnDisk } = job;
+    const { id, deleteOnDisk: isDeleteOnDiskRequest } = job;
 
     const asset = await this.assetJobRepository.getForAssetDeletion(id);
 
     if (!asset) {
       return JobStatus.Failed;
     }
+
+    // isOffline is an alias for excluded library assets
+    const deleteOnDisk = isDeleteOnDiskRequest && !asset.isOffline;
 
     if (asset.stack) {
       // asset.stack.assets only includes timeline visible assets and excludes the primary asset
@@ -471,7 +475,7 @@ export class AssetService extends BaseService {
       assetFiles.encodedVideoFile?.path,
     ];
 
-    if (deleteOnDisk && !asset.isOffline) {
+    if (deleteOnDisk) {
       files.push(assetFiles.sidecarFile?.path, asset.originalPath);
     }
 

@@ -1,14 +1,13 @@
 <script lang="ts">
-  import ImageThumbnail from '$lib/components/assets/thumbnail/ImageThumbnail.svelte';
-  import { getLibrary, getPeople, getSearchLibraryTitle, getSearchPeopleTitle } from './search-bar-utils';
-  import SingleGridRow from '$lib/components/shared-components/SingleGridRow.svelte';
-  import SearchBar from '$lib/elements/SearchBar.svelte';
-  import { getAssetUrl, getPeopleThumbnailUrl } from '$lib/utils';
+  import ImageThumbnail from '#lib/components/assets/thumbnail/ImageThumbnail.svelte';
+  import SingleGridRow from '#lib/components/shared-components/SingleGridRow.svelte';
+  import SearchBar from '#lib/elements/SearchBar.svelte';
+  import { searchManager } from '#lib/managers/search-manager.svelte.ts';
   import { getAssetThumbnailPath, type LibraryWithAssetResponseDto } from '@immich/sdk';
   import { Button, Icon, LoadingSpinner, Text } from '@immich/ui';
   import { mdiArrowRight, mdiCheck, mdiClose } from '@mdi/js';
   import { t } from 'svelte-i18n';
-  import { searchManager } from '$lib/managers/search-manager.svelte';
+  import { getLibrary, getSearchLibraryTitle } from './search-bar-utils';
 
   interface Props {
     title: string | undefined;
@@ -46,9 +45,11 @@
   </div>
 {:then libraries}
   {#if libraries && libraries.length > 0}
-    {@const libraryList = showAllLibraries
-      ? filterLibraries(libraries, name)
-      : filterLibraries(libraries, name).slice(0, numberOfLibraries)}
+    {const libraryList = $derived(
+      showAllLibraries
+        ? filterLibraries(libraries, name)
+        : filterLibraries(libraries, name).slice(0, numberOfLibraries),
+    )}
 
     <div id="people-selection" class="max-h-80 immich-scrollbar overflow-y-auto">
       <Text class="pb-5">{$t('select_library')}</Text>

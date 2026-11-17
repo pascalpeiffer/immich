@@ -1,10 +1,16 @@
-import { getViewerLibraries, getAllPeople, type PersonResponseDto, type TagResponseDto, type LibraryWithAssetResponseDto } from '@immich/sdk';
+import { MediaType } from '#lib/constants.ts';
+import { handleError } from '#lib/utils/handle-error.ts';
+import {
+  getAllPeople,
+  getViewerLibraries,
+  type LibraryWithAssetResponseDto,
+  type PersonResponseDto,
+  type TagResponseDto,
+} from '@immich/sdk';
 import { DateTime } from 'luxon';
 import { t } from 'svelte-i18n';
 import type { SvelteSet } from 'svelte/reactivity';
 import { get } from 'svelte/store';
-import { MediaType } from '$lib/constants';
-import { handleError } from '$lib/utils/handle-error';
 
 export enum SearchDatePreset {
   ThisYear,
@@ -149,6 +155,18 @@ export const getPeople = async (selected: SvelteSet<string>): Promise<PersonResp
   return [];
 };
 
+export const getLibraries = async (selected: SvelteSet<string>): Promise<LibraryWithAssetResponseDto[]> => {
+  const $t = get(t);
+  try {
+    const res = await getViewerLibraries();
+    res.sort((a, b) => (selected.has(a.id) ? -1 : selected.has(b.id) ? 1 : 0));
+    return res;
+  } catch (error) {
+    handleError(error, $t('errors.failed_to_get_libraries'));
+  }
+  return [];
+};
+
 export const getSearchPeopleTitle = (people: PersonResponseDto[], selected: SvelteSet<string>) => {
   if (selected.size === 0) {
     return;
@@ -178,7 +196,7 @@ export const getLibrary = async (selected: SvelteSet<string>): Promise<LibraryWi
 
 export const getSearchLibraryTitle = (libraries: LibraryWithAssetResponseDto[], selected: SvelteSet<string>) => {
   if (selected.size === 0) {
-    return;
+    return undefined;
   }
 
   const $t = get(t);
