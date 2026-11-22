@@ -48,9 +48,7 @@ export class AlbumService extends BaseService {
       const lib = await this.libraryRepository.get(v.libraryId);
       if (!lib) continue;
       if (asset && lib.id !== asset.libraryId) continue;
-      const user = mapUser(
-        await findOrFail(() => this.userRepository.get(lib.ownerId, { withDeleted: false }), 'User'),
-      );
+      const user = mapUser(await findOrFail(() => this.userRepository.get(ownerId, { withDeleted: false }), 'User'));
       const thumbId = await this.assetRepository.getLatestImageIdByLibraryId(lib.id);
       albums.push({
         albumName: lib.name,
@@ -61,7 +59,7 @@ export class AlbumService extends BaseService {
         albumThumbnailAssetId: v.albumThumbnailAssetId ?? thumbId ?? null,
         albumUsers: [
           {
-            role: AlbumUserRole.Viewer,
+            role: AlbumUserRole.Owner,
             user,
           },
         ],
@@ -136,7 +134,7 @@ export class AlbumService extends BaseService {
 
     const viewerAlb = await this.getViewerAlbumAddition(ownerId, assetId);
 
-    if (rest.isOwned === undefined && rest.id === undefined) {
+    if (rest.id === undefined) {
       albums = [...albums, ...viewerAlb];
     }
 
